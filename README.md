@@ -1,0 +1,83 @@
+﻿## Soccer Manager
+
+A robust, scalable .NET 10 Web API for managing soccer teams and and player transfers, built with **Onion Architecture** and **Domain-Driven Design (DDD)** principles. 
+
+### 🚀 Technologies:
+
+* **Runtime**: .NET 10 SDK
+
+* **Architecture:** Onion Architecture / Clean Architecture
+
+* **Patterns:** Domain-Driven Design (DDD), Repository Pattern, Unit of Work and Optimistic Concurrency
+
+* **Database:** SQL Server via Entity Framework Core
+
+* **Identity:** ASP.NET Core Identity API Endpoints (Cookie and Bearer Token auth)
+
+* **Documentation:** Swagger, Scalar, OpenAPI	
+
+### 🏗️ Architecture Overview
+
+The project is divided into four concentric layers following Onion Architecture principles: 
+
+* **Domain:** Core business logic, entities, value objects, and domain exceptions. No external dependencies.
+
+* **Application:** Use cases, service interfaces, DTOs, and mapping logic.
+
+* **Infrastructure:** Implementation of data access (SQL Server), Identity services, and external integrations.
+
+* **Presentation (API):** Entry point, controllers, Identity API endpoint configuration, middlewares for unit of work and global exception handling, authorization etc. 
+
+### 🔑 Authentication & Authorization
+
+This project uses the native .NET Identity API Endpoints for a streamlined auth experience:
+
+* **POST** /auth/register: Create a new user account.
+
+* **POST** /auth/login: Exchange credentials for a Bearer token.
+
+* **POST** /auth/refresh: Renew expired sessions.
+
+* **Auth Type:** Cookie (for web browsers) & JWT / Bearer Token (for native clients). 
+
+
+### 🛠️ Getting Started
+
+### Prerequisites
+
+* .NET 10 SDK
+
+* SQL Server (Express or LocalDB)
+
+* Visual Studio 2022 (v17.12+)
+
+### Installation
+
+1) **Clone the repository:**
+
+```bash
+git clone <repository-url>>
+cd your-project
+```
+
+2) **Update Connection String and default admin credentials:**
+
+Open appsettings.json or secrets.json in the Api project and update the DefaultConnection to point to your SQL Server instance. Also update default admin credentials in secret.json.
+
+3) **Run Migrations:**
+
+```bash
+dotnet ef database update --project src/EntityFrameworkCore --startup-project src/Api
+```
+
+4) **Launch the Application:**
+
+Run the project and navigate to /swagger or /scalar to test the Api endpoints. 
+
+### 🧪 Testing
+
+Automated tests will be added. Run the following command to execute unit and integration tests across all layers.
+
+```bash
+dotnet test
+```
