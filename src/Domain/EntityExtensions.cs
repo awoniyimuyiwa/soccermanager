@@ -30,6 +30,7 @@ public static class EntityExtensions
             player.FirstName,
             player.LastName,
             player.TeamId,
+            player.Type,
             player.Value,
             player.CreatedAt,
             player.UpdatedAt,

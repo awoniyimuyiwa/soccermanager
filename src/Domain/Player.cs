@@ -1,4 +1,7 @@
-﻿namespace Domain;
+﻿using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace Domain;
 
 public class Player : AuditedEntity, IHasConcurrencyStamp
 {
@@ -62,16 +65,6 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
         Team = team;
         TeamId = team.Id;
         Type = type;
-
-        PlayerValues.Add(new PlayerValue
-        {
-            Id = id,
-            PlayerId = Id,
-            SourceEntityId = null,
-            Type = PlayerValueType.Initial,
-            Value = Constants.InitialPlayerValue
-        });
-        Value += Constants.InitialPlayerValue;
     }
 
     public int GetAge(DateOnly today)

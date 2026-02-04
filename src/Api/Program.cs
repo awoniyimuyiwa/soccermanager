@@ -6,6 +6,8 @@ using Asp.Versioning;
 using Domain;
 using EntityFrameworkCore.Extensions;
 using Scalar.AspNetCore;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,10 +19,32 @@ builder.Services.AddExceptionHandler<ExceptionHandler>();
 
 builder.Services.AddProblemDetails(); // Enable Problem Details support
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddSchemaTransformer((schema, context, cancellationToken) =>
+{
+    if (context.JsonTypeInfo.Type.IsEnum)
+    {
+        var enumType = context.JsonTypeInfo.Type;
+        schema.Enum ??= [];
+        schema.Enum.Clear();
+
+        // Add enum names as JsonNodes (Standard for .NET 10 OpenAPI)
+        foreach (var name in Enum.GetNames(enumType))
+        {
+            schema.Enum.Add(JsonValue.Create(name));
+        }
+
+        schema.Type = Microsoft.OpenApi.JsonSchemaType.String;
+    }
+
+    return Task.CompletedTask;
+}));
 
 builder.Services.AddApiVersioning(options =>
 {

@@ -13,7 +13,8 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.1" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Identity.Stores" Version="10.0.1" />
-    <PackageVersion Include="Scalar.AspNetCore" Version="2.12.14" />
-    <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.6" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.12.32" />
+    <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerGen" Version="10.1.1" />
+    <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.1.1" />
   </ItemGroup>
 </Project>

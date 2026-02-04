@@ -65,7 +65,10 @@ class PlayerService(
             true,
             null,
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Player), playerId);
-       
+
+        player.DateOfBirth = input.DateOfBirth;
+        player.Type = input.Type;
+
         if (!string.IsNullOrWhiteSpace(input.Country))
         {
             player.Country = input.Country;
@@ -80,9 +83,8 @@ class PlayerService(
         {
             player.LastName = input.LastName;
         }
-
+      
         player.ConcurrencyStamp = input.ConcurrencyStamp;
-        _playerRepository.Update(player);
 
         await _unitOfWork.SaveChanges(cancellationToken);
 

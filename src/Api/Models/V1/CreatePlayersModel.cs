@@ -4,7 +4,18 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Api.Models.V1;
 
-public record UpdatePlayerModel : UpdatePlayerDto
+public record CreatePlayersModel
+{
+    [MaxLength(Constants.MaxLengthOfPlayers)]
+    [Required]
+    public IReadOnlyCollection<CreatePlayerModel> Players { get; set; } = [];
+
+    [MaxLength(Domain.Constants.StringMaxLength)]
+    [Required]
+    public string TeamConcurrencyStamp { get; set; } = null!;
+}
+
+public record CreatePlayerModel : CreatePlayerDto
 {
     /// <summary>
     /// Must be a valid ISO 3166-1 alpha-2 country code (e.g., US, GB)
@@ -24,7 +35,12 @@ public record UpdatePlayerModel : UpdatePlayerDto
     [MaxLength(Domain.Constants.StringMaxLength)]
     public override string? LastName { get; set; }
 
-    [MaxLength(Domain.Constants.StringMaxLength)]
+    /// <summary>
+    /// Default is 1,000,000
+    /// </summary>
+    [Range(1, int.MaxValue)]
     [Required]
-    public override string ConcurrencyStamp { get; set; } = null!;
+    public override decimal Value { get; set; } = Domain.Constants.InitialPlayerValue;
 }
+
+
