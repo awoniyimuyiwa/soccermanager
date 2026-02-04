@@ -6,6 +6,11 @@ namespace EntityFrameworkCore.Repositories;
 
 class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(context), ITeamRepository
 {
+    public Task<bool> Any(
+        Expression<Func<Team, bool>> expression,
+        CancellationToken cancellationToken = default) =>
+        _context.Set<Team>().AnyAsync(expression, cancellationToken);
+          
     public void AddTransferBudgetValue(TransferBudgetValue transferBudgetValue)
     {
         _context.Set<TransferBudgetValue>().Add(transferBudgetValue);

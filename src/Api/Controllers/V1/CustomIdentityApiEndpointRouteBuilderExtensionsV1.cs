@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Security.Claims;
@@ -79,8 +80,45 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             }
 
             #region CustomCode
-            var teamService  = sp.GetRequiredService<ITeamService>();
-            await teamService.CreateDefault(user);
+            var teamService = sp.GetRequiredService<ITeamService>();
+            var timeProvider = sp.GetRequiredService<TimeProvider>();
+            var today = timeProvider.GetUtcNow().Date;
+            var random = new Random();
+            var players = new List<CreatePlayerDto>();
+            players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto()
+            {
+                DateOfBirth = GetRandomDateOfBirth(today, random),
+                Type = PlayerType.Goalkeeper,
+                Value = Domain.Constants.InitialPlayerValue
+            }));
+
+            players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
+            {
+                DateOfBirth = GetRandomDateOfBirth(today, random),
+                Type = PlayerType.Defender,
+                Value = Domain.Constants.InitialPlayerValue
+            }));
+
+            players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
+            {
+                DateOfBirth = GetRandomDateOfBirth(today, random),
+                Type = PlayerType.Midfielder,
+                Value = Domain.Constants.InitialPlayerValue
+            }));
+
+            players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto()
+            {
+                DateOfBirth = GetRandomDateOfBirth(today, random),
+                Type = PlayerType.Attacker,
+                Value = Domain.Constants.InitialPlayerValue
+            }));
+
+            await teamService.Create(user, 
+                new CreateTeamDto
+                {
+                   TransferBudget = Domain.Constants.InitialTeamTransferBudget,
+                }, 
+                players);
             #endregion
 
             await SendConfirmationEmailAsync(user, userManager, context, email);
@@ -472,6 +510,28 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         public void Add(Action<EndpointBuilder> convention) => InnerAsConventionBuilder.Add(convention);
         public void Finally(Action<EndpointBuilder> finallyConvention) => InnerAsConventionBuilder.Finally(finallyConvention);
     }
+
+    #region CustomCode
+    private static DateOnly GetRandomDateOfBirth(
+        DateTime today,
+        Random random)
+    {
+        var latestPossibleDOB = today.AddYears(-Domain.Constants.MinPlayerAge);
+
+        // Exact date for someone who turns Max + 1 today
+        var boundaryDate = today.AddYears(-Domain.Constants.MaxPlayerAge - 1);
+        // One day after their Max + 1 birthday is the earliest they can be born to be Max
+        var earliestPossibleDOB = boundaryDate.AddDays(1);
+
+        // Calculate total days span
+        int rangeInDays = (latestPossibleDOB - earliestPossibleDOB).Days;
+
+        // Generate random DOB
+        var randomDOB = earliestPossibleDOB.AddDays(random.Next(rangeInDays + 1));
+
+        return DateOnly.FromDateTime(randomDOB);
+    }
+    #endregion
 
     [AttributeUsage(AttributeTargets.Parameter)]
     private sealed class FromBodyAttribute : Attribute, IFromBodyMetadata

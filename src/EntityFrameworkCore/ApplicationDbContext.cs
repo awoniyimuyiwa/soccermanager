@@ -86,6 +86,9 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .WithOne()
             .HasForeignKey(tbv => tbv.TeamId)
             .IsRequired();
+
+            team.HasIndex(t => new { t.OwnerId, t.Name })
+            .IsUnique();
         });
 
         modelBuilder.Entity<Transfer>(transfer =>

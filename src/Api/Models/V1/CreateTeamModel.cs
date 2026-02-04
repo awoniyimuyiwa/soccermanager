@@ -3,8 +3,7 @@ using Application.Contracts;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Models.V1;
-
-public record UpdateTeamModel : UpdateTeamDto
+public record CreateTeamModel : CreateTeamDto
 {
     /// <summary>
     /// Must be a valid ISO 3166-1 alpha-2 country code (e.g., US, GB)
@@ -16,8 +15,15 @@ public record UpdateTeamModel : UpdateTeamDto
     [MaxLength(Domain.Constants.StringMaxLength)]
     public override string? Name { get; set; }
 
-    [MaxLength(Domain.Constants.StringMaxLength)]
+    /// <summary>
+    /// Default is 5,000,000
+    /// </summary>
+
+    [Range(1, int.MaxValue)]
     [Required]
-    public override string ConcurrencyStamp { get; set; } = null!;
+    public override decimal TransferBudget { get; set; } = Domain.Constants.InitialTeamTransferBudget;
+
+    [MaxLength(Constants.MaxLengthOfPlayers)]
+    public IReadOnlyCollection<CreatePlayerModel> Players { get; set; } = [];
 }
 

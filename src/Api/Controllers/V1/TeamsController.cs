@@ -1,5 +1,6 @@
 using Api.Models.V1;
 using Application.Contracts;
+using Application.Services;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -12,11 +13,13 @@ namespace Api.Controllers.V1;
 [Route("v{version:apiVersion}/teams")]
 public class TeamsController(
     IPlayerRepository playerRepository,
+    IPlayerService playerService,
     ITeamRepository teamRepository,
     ITeamService teamService,
     UserManager<ApplicationUser> userManager) : ControllerBase
 {
     readonly IPlayerRepository _playerRepository = playerRepository;
+    readonly IPlayerService _playerService = playerService;
     readonly ITeamRepository _teamRepository = teamRepository;
     readonly ITeamService _teamService = teamService;
     readonly UserManager<ApplicationUser> _userManager = userManager;
@@ -42,6 +45,40 @@ public class TeamsController(
             pageSize);
 
         return Ok(teams);
+    }
+
+    /// <summary>
+    /// Create team for the currently logged in user
+    /// </summary>
+    /// <param name="input"></param>
+    /// <response code="200">When there are no errors</response>
+    /// <response code="400">When there are validation errors</response>
+    /// <response code="401">When authentication fails</response>
+    [HttpPost]
+    [ProducesResponseType(typeof(TeamDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<TeamDto>> Create(CreateTeamModel input)
+    {
+        var user = await _userManager.GetUserAsync(User);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        if (await _teamRepository.Any(
+            t => t.OwnerId == user.Id && t.Name == input.Name))
+        {
+            ModelState.AddModelError(nameof(input.Name), Constants.AlreadyExistsErrorMessage);
+            return ValidationProblem();
+        }
+
+        var team = await _teamService.Create(        
+            user,
+            input,
+            [.. input.Players.Select(p => p as CreatePlayerDto)]);
+
+        return Ok(team);
     }
 
     /// <summary>
@@ -96,6 +133,52 @@ public class TeamsController(
     }
 
     /// <summary>
+    /// Create players for the team with the specified <paramref name="id"/> owned by the logged in user
+    /// </summary>
+    /// <param name="id">Team id</param>
+    /// <param name="input"></param>
+    /// <response code="200">When there are no errors</response>
+    /// <response code="400">When there are validation errors</response>
+    /// <response code="401">When authentication fails</response>
+    /// <response code="404">When team is not found </response>
+    [HttpPost("{id}/players")]
+    [ProducesResponseType(typeof(PlayersModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PlayersModel>> CreatePlayers(
+        Guid id, 
+        CreatePlayersModel input)
+    {
+        var userId = _userManager.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var players = await _teamService.AddPlayers(
+                id,
+                Guid.Parse(userId),
+                new AddPlayersDto()
+                {
+                    Players =  [..input.Players.Select(p => p as CreatePlayerDto)],
+                    TeamConcurrencyStamp = input.TeamConcurrencyStamp
+                });
+
+            return Ok(new PlayersModel
+            {
+                Players = players
+            });
+        }
+        catch (EntityNotFoundException e)
+        {
+            return NotFound(e.Message);
+        }
+    }
+
+    /// <summary>
     /// Get players of team with <paramref name="id"/>
     /// </summary>
     /// <param name="id">Team id</param>
@@ -131,7 +214,7 @@ public class TeamsController(
     /// <response code="401">When authentication fails</response>
     /// <response code="404">When team is not found </response>
     /// <response code="409">When concurrency error occurs</response>
-    [HttpPut("my-teams/{id}")]
+    [HttpPut("{id}")]
     [ProducesResponseType(typeof(TeamDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -147,11 +230,21 @@ public class TeamsController(
             return Unauthorized();
         }
 
+        var userGuid = Guid.Parse(userId);
+        if (await _teamRepository.Any(
+            t => t.OwnerId == userGuid
+                 && t.Id != id
+                 && t.Name == input.Name))
+        {
+            ModelState.AddModelError(nameof(input.Name), Constants.AlreadyExistsErrorMessage);
+            return ValidationProblem();
+        }
+
         try
         {
             var team = await _teamService.Update(
                 id,
-                Guid.Parse(userId!),
+                userGuid,
                 input);
 
             return Ok(team);
