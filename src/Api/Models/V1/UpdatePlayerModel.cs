@@ -12,6 +12,9 @@ public record UpdatePlayerModel : UpdatePlayerDto
     [CountryCode(ErrorMessage = Constants.CountryCodeErrorMessage)]
     public override string? Country { get; set; }
 
+    /// <summary>
+    /// Must be 18 to 40
+    /// </summary>
     [AgeRange(Domain.Constants.MinPlayerAge, Domain.Constants.MaxPlayerAge)]
     [Required]
     public override DateOnly DateOfBirth { get; set; }

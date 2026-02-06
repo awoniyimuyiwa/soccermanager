@@ -4,6 +4,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EntityFrameworkCore;
 
+
+/// <summary>
+/// The primary database context for the application, handling identity and core business logic.
+/// </summary>
+/// <param name="options">The options to be used by this <see cref="DbContext"/>.</param>
+/// <remarks>
+/// When a table has both a Trigger and a Concurrency stamp (RowVersion), SQL Server's 
+/// restriction on the <c>OUTPUT</c> clause prevents EF Core from verifying that the 
+/// stamp hasn't changed. By adding <c>.HasTrigger()</c> in the model configuration, 
+/// EF Core switches to a 'temp table approach' to safely capture the updated 
+/// <c>RowVersion</c> while allowing database triggers to fire correctly.
+/// </remarks>
 class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, long>(options)
 {
     public DbSet<Player> Players { get; set; }
@@ -26,9 +38,9 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         modelBuilder.Entity<ApplicationUser>(applicationUser =>
         {
-            applicationUser.Property(au => au.FirstName).HasMaxLength(Constants.StringMaxLength);
-            applicationUser.Property(au => au.LastName).HasMaxLength(Constants.StringMaxLength);
-            applicationUser.Property(au => au.ConcurrencyStamp).HasMaxLength(Constants.StringMaxLength);
+            applicationUser.Property(au => au.FirstName).HasMaxLength(Domain.Constants.StringMaxLength);
+            applicationUser.Property(au => au.LastName).HasMaxLength(Domain.Constants.StringMaxLength);
+            applicationUser.Property(au => au.ConcurrencyStamp).HasMaxLength(Domain.Constants.StringMaxLength);
             applicationUser.Property(au => au.Id).ValueGeneratedOnAdd();
             applicationUser.HasIndex(au => au.ExternalId)
             .IsUnique();
@@ -43,18 +55,24 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         modelBuilder.Entity<AuditLog>(auditLog =>
         {
-            auditLog.Property(al => al.EntityName).HasMaxLength(Constants.StringMaxLength).IsRequired();
+            auditLog.Property(al => al.EntityName).HasMaxLength(Domain.Constants.StringMaxLength).IsRequired();
         });
 
         modelBuilder.Entity<Player>(player =>
         {
-            player.Property(p => p.Country).HasMaxLength(Constants.StringMaxLength);
-            player.Property(p => p.FirstName).HasMaxLength(Constants.StringMaxLength);
-            player.Property(p => p.LastName).HasMaxLength(Constants.StringMaxLength);
-            player.Property(p => p.Value).HasPrecision(19, 4);
-            player.Property(p => p.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Constants.StringMaxLength);
+            player.Property(p => p.Country).HasMaxLength(Domain.Constants.StringMaxLength);
+            player.Property(p => p.FirstName).HasMaxLength(Domain.Constants.StringMaxLength);
+            player.Property(p => p.LastName).HasMaxLength(Domain.Constants.StringMaxLength);
+          
+            // ValueGeneratedOnAddOrUpdate() Tells EF to read this back after SaveChanges
+            player.Property(p => p.Value)
+            .HasPrecision(19, 4)
+            .ValueGeneratedOnAddOrUpdate()
+            .HasDefaultValue(0m);  
 
-            player.ToTable(p => p.HasCheckConstraint("CK_Player_Value", $"[Value] >= {Constants.MinPlayerValue}"));
+            player.Property(p => p.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Domain.Constants                                                                    .StringMaxLength);
+
+            player.ToTable(p => p.HasCheckConstraint("CK_Player_Value", $"[Value] >= {Domain.Constants.MinPlayerValue}"));
 
             player.HasOne(p => p.Team)
             .WithMany("Players")
@@ -67,30 +85,53 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .IsRequired();
 
             // Tell EF to use the property, which triggers your setter logic
-           player.Navigation(p => p.Team)
+            player.Navigation(p => p.Team)
             .UsePropertyAccessMode(PropertyAccessMode.Property);
 
             player.Property(p => p.TeamId)
                 .UsePropertyAccessMode(PropertyAccessMode.Property);
+
+           // Covering index to speed up trigger
+           player.HasIndex(p => p.TeamId)
+            .IncludeProperties(p => p.Value);
+
+            player.ToTable(tb => tb.HasTrigger(Constants.TeamValueTriggerName));
         });
 
         modelBuilder.Entity<PlayerValue>(playerValue =>
         {            
-            playerValue.Property(pv => pv.Value).HasPrecision(19, 4);
+            playerValue.Property(pv => pv.Value)
+            .HasPrecision(19, 4)
+            .HasDefaultValue(0m);
+
+            // Covering index to speed up trigger
+            playerValue.HasIndex(pv => pv.PlayerId)
+            .IncludeProperties(pv => pv.Value);
+
+            playerValue.ToTable(tb => tb.HasTrigger(Constants.PlayerValueTriggerName));
         });
 
         modelBuilder.Entity<Team>(team =>
         {
             team.Ignore(t => t.AllPlayers);
 
-            team.Property(t => t.Country).HasMaxLength(Constants.StringMaxLength);
-            team.Property(t => t.Name).HasMaxLength(Constants.StringMaxLength);
-            team.Property(t => t.TransferBudget).HasPrecision(19, 4);
-            team.Property(t => t.Value).HasPrecision(19, 4);
-            team.Property(t => t.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Constants.StringMaxLength);
+            team.Property(t => t.Country).HasMaxLength(Domain.Constants.StringMaxLength);
+            team.Property(t => t.Name).HasMaxLength(Domain.Constants.StringMaxLength);
+            
+            team.Property(t => t.TransferBudget)
+            .HasPrecision(19, 4)
+            .HasDefaultValue(0m)
+            .ValueGeneratedOnAddOrUpdate();
+            
+            team.Property(t => t.Value)
+            .HasPrecision(19, 4)
+            .HasDefaultValue(0m)
+            .ValueGeneratedOnAddOrUpdate();
+           
+            team.Property(t => t.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Domain.Constants.StringMaxLength);
 
-            team.ToTable(t => t.HasCheckConstraint("CK_Team_Transfer_Budget", $"[TransferBudget] >= {Constants.MinTeamTransferBudget}"));
-            team.ToTable(t => t.HasCheckConstraint("CK_Team_Value", $"[Value] >= {Constants.MinPlayerValue}"));
+            team.ToTable(t => t.HasCheckConstraint("CK_Team_Transfer_Budget", $"[TransferBudget] >= {Domain.Constants.MinTeamTransferBudget}"));
+            team.ToTable(t => t.HasCheckConstraint("CK_Team_Value", $"[Value] >= {Domain.Constants.MinPlayerValue}"));
 
             team.HasMany<TransferBudgetValue>("TransferBudgetValues")
             .WithOne(tbv => tbv.Team)
@@ -104,9 +145,9 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
         modelBuilder.Entity<Transfer>(transfer =>
         {
             transfer.Property(t => t.AskingPrice).HasPrecision(19, 4);
-            transfer.Property(t => t.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Constants.StringMaxLength);
+            transfer.Property(t => t.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Domain.Constants.StringMaxLength);
 
-            transfer.ToTable(t => t.HasCheckConstraint("CK_Transfer_Asking_Price_Min", $"[AskingPrice] >= {Constants.MinPlayerAskingPrice}"));
+            transfer.ToTable(t => t.HasCheckConstraint("CK_Transfer_Asking_Price_Min", $"[AskingPrice] >= {Domain.  Constants.MinPlayerAskingPrice}"));
 
             transfer.HasOne(t => t.Player) 
             .WithMany("Transfers")       
@@ -136,8 +177,17 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         modelBuilder.Entity<TransferBudgetValue>(transferBudgetValue =>
         {
-            transferBudgetValue.Property(tbv => tbv.Description).HasMaxLength(Constants.StringMaxLength);
-            transferBudgetValue.Property(tbv => tbv.Value).HasPrecision(19, 4);
+            transferBudgetValue.Property(tbv => tbv.Description).HasMaxLength(Domain.Constants.StringMaxLength);
+            
+            transferBudgetValue.Property(tbv => tbv.Value)
+            .HasPrecision(19, 4)
+            .HasDefaultValue(0m);
+
+            // Covering index to speed up trigger
+            transferBudgetValue.HasIndex(tbv => tbv.TeamId)
+            .IncludeProperties(tbv => tbv.Value);
+
+            transferBudgetValue.ToTable(tb => tb.HasTrigger(Constants.TeamTransferBudgetTriggerName));
         });
 
         // Find all entity types that are a subclass of Entity

@@ -16,5 +16,9 @@ public interface IBaseRepository<T> where T : Entity
 
     void Update(T entity);
 
+    Task Reload(
+        T entity,
+        CancellationToken cancellationToken = default);
+
     void Remove(T entity);
 }

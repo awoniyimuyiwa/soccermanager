@@ -1,4 +1,5 @@
 using Domain;
+using EntityFrameworkCore.Extensions;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 
@@ -36,8 +37,11 @@ class TransferRepository(ApplicationDbContext context) : BaseRepository<Transfer
         int pageSize = 100,
         CancellationToken cancellationToken = default)
     {
-        pageNumber = Math.Max(Constants.MinPageNumber, pageNumber);
-        pageSize = Math.Clamp(pageSize, Constants.MinPageSize, Constants.MaxPageSize);
+        pageNumber = Math.Max(Domain.Constants.MinPageNumber, pageNumber);
+        pageSize = Math.Clamp(
+            pageSize, 
+            Domain.Constants.MinPageSize, 
+            Domain.Constants.MaxPageSize);
 
         var query = _context.Set<Transfer>()
             .AsNoTracking()

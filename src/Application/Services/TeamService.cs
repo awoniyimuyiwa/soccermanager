@@ -5,13 +5,11 @@ namespace Application.Services;
 class TeamService(
     IPlayerRepository playerRepository,
     ITeamRepository teamRepository,
-    IUnitOfWork unitOfWork,
-    TimeProvider timeProvider) : ITeamService
+    IUnitOfWork unitOfWork) : ITeamService
 {
     private readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITeamRepository _teamRepository = teamRepository;
     readonly IUnitOfWork _unitOfWork = unitOfWork;
-    readonly TimeProvider _timeProvider = timeProvider;
 
     public async Task<IReadOnlyCollection<PlayerDto>> AddPlayers(
         Guid teamId,
@@ -32,7 +30,11 @@ class TeamService(
 
         await _unitOfWork.SaveChanges(cancellationToken);
 
-        return [.. players.Select(p => p.ToDto(DateOnly.FromDateTime(_timeProvider.GetUtcNow().Date)))];
+        // Fetch the final trigger-computed values from the DB
+        var playerIds = players.Select(p => p.Id).ToList();
+        return await _playerRepository.GetAll(
+            p => playerIds.Contains(p.Id),
+            cancellationToken);
     }
 
     public async Task<TeamDto> Create(
@@ -48,7 +50,6 @@ class TeamService(
             owner);
         _teamRepository.Add(team);
 
-        team.TransferBudget += teamDto.TransferBudget;
         _teamRepository.AddTransferBudgetValue(new TransferBudgetValue(
             Guid.NewGuid(),
             team,
@@ -60,6 +61,10 @@ class TeamService(
             playerDtos);
 
         await _unitOfWork.SaveChanges(cancellationToken);
+
+        // Fetch the final trigger-computed values from the DB
+        // another way is: return team.ToDto() with { TransferBudget = teamDto.TransferBudget, Value = playerDtos.Sum(p => p.Value) }
+        await _teamRepository.Reload(team, cancellationToken);
 
         return team.ToDto();
     }
@@ -90,6 +95,9 @@ class TeamService(
 
         await _unitOfWork.SaveChanges(cancellationToken);
 
+        // Fetch the final trigger-computed values from the DB
+        await _teamRepository.Reload(team, cancellationToken);
+
         return team.ToDto();
     }
 
@@ -110,12 +118,10 @@ class TeamService(
                 team,
                 playerDto.Type);
 
-            player.Value += playerDto.Value;
-            team.Value += player.Value;
             _playerRepository.Add(player);
             _playerRepository.AddPlayerValue(new PlayerValue(
                 Guid.NewGuid(), 
-                player, 
+                player,
                 PlayerValueType.Initial,
                 playerDto.Value));
 

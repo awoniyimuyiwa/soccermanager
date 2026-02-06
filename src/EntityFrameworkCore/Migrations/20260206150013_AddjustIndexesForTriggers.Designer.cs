@@ -4,6 +4,7 @@ using EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EntityFrameworkCore.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260206150013_AddjustIndexesForTriggers")]
+    partial class AddjustIndexesForTriggers
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -229,10 +232,8 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.Property<decimal>("Value")
-                        .ValueGeneratedOnAddOrUpdate()
                         .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(19,4)");
 
                     b.HasKey("Id");
 
@@ -245,12 +246,8 @@ namespace EntityFrameworkCore.Migrations
 
                     b.ToTable("Players", t =>
                         {
-                            t.HasTrigger("trg_UpdateTeamValueFromPlayers");
-
                             t.HasCheckConstraint("CK_Player_Value", "[Value] >= 0");
                         });
-
-                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("Domain.PlayerValue", b =>
@@ -280,10 +277,8 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.Property<decimal>("Value")
-                        .ValueGeneratedOnAdd()
                         .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(19,4)");
 
                     b.HasKey("Id");
 
@@ -294,12 +289,7 @@ namespace EntityFrameworkCore.Migrations
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("PlayerId"), new[] { "Value" });
 
-                    b.ToTable("PlayerValues", t =>
-                        {
-                            t.HasTrigger("trg_UpdatePlayerValueFromValues");
-                        });
-
-                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
+                    b.ToTable("PlayerValues");
                 });
 
             modelBuilder.Entity("Domain.Team", b =>
@@ -333,19 +323,15 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<decimal>("TransferBudget")
-                        .ValueGeneratedOnAddOrUpdate()
                         .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(19,4)");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<decimal>("Value")
-                        .ValueGeneratedOnAddOrUpdate()
                         .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(19,4)");
 
                     b.HasKey("Id");
 
@@ -444,10 +430,8 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.Property<decimal>("Value")
-                        .ValueGeneratedOnAdd()
                         .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(19,4)");
 
                     b.HasKey("Id");
 
@@ -460,12 +444,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("TransferId");
 
-                    b.ToTable("TransferBudgetValues", t =>
-                        {
-                            t.HasTrigger("trg_UpdateTeamTransferBudgetFromValues");
-                        });
-
-                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
+                    b.ToTable("TransferBudgetValues");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<long>", b =>

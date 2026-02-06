@@ -62,7 +62,7 @@ public static class ServiceCollectionExtensions
         var adminEmail = configuration["AdminUser:Email"];
         var adminUserName = configuration["AdminUser:UserName"];
         var adminPassword = configuration["AdminUser:Password"];
-        var adminRole = Constants.AdminRoleName;
+        var adminRole = Domain.Constants.AdminRoleName;
 
         if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
         {
@@ -115,7 +115,7 @@ public static class ServiceCollectionExtensions
         var adminEmail = configuration["AdminUser:Email"];
         var adminUserName = configuration["AdminUser:UserName"];
         var adminPassword = configuration["AdminUser:Password"];
-        var adminRole = Constants.AdminRoleName;
+        var adminRole = Domain.Constants.AdminRoleName;
 
         if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
         {

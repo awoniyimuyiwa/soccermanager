@@ -14,7 +14,7 @@ public class PlayerValue : AuditedEntity
     /// <summary>
     /// + for increase, - for decrease
     /// </summary>
-    public decimal Value { get; init; }
+    public decimal Value { get; init; } = 0;
 
     public Player Player { get; protected set; } = null!;
 
