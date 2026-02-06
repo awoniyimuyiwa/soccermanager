@@ -15,12 +15,12 @@ class TransferService(
 
     public async Task<TransferDto> Pay(
         Guid id, 
-        Guid userId,
+        long userId,
         string concurrencyStamp,
         CancellationToken cancellationToken = default)
     {
         var transfer = await _transferRepository.Find(
-            t => t.Id == id,
+            t => t.ExternalId == id,
             true,
             null,
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Transfer), id);
@@ -50,7 +50,7 @@ class TransferService(
         toTeam.TransferBudget -= transfer.AskingPrice; 
         _teamRepository.AddTransferBudgetValue(new TransferBudgetValue(
             Guid.NewGuid(),
-            toTeam.Id,
+            toTeam,
             -transfer.AskingPrice,
             Constants.TransferDescription,
             transfer));
@@ -72,13 +72,12 @@ class TransferService(
         var playerValueIncreament = (new Random().Next(Constants.MinPlayerValuePercentageIncrease, Constants.MaxPlayerValuePercentageIncrease + 1) / 100m) * player.Value;
         player.Value += playerValueIncreament;
         toTeam.Value += player.Value;
-        _playerRepository.AddPlayerValue(new PlayerValue()
-        {
-            PlayerId = player.Id,
-            Value = playerValueIncreament,
-            Type = PlayerValueType.Transfer,
-            SourceEntityId = transfer.Id
-        });
+        _playerRepository.AddPlayerValue(new PlayerValue(
+            Guid.NewGuid(),
+            player, 
+            PlayerValueType.Transfer, 
+            playerValueIncreament, 
+            transfer.Id));
 
         // Update references only, adding to collections manually when changing relationships may cause EF Core change tracking issues.
         player.Team = toTeam;

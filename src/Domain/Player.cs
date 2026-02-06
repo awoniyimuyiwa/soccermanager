@@ -1,11 +1,8 @@
-﻿using System.ComponentModel;
-using System.Runtime.CompilerServices;
-
-namespace Domain;
+﻿namespace Domain;
 
 public class Player : AuditedEntity, IHasConcurrencyStamp
 {
-    private Guid _teamId;
+    private long _teamId;
 
     private Team _team = null!;
 
@@ -30,7 +27,7 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
 
     public string? ConcurrencyStamp { get; set; }
 
-    public Guid TeamId
+    public long TeamId
     {
         get => _teamId;
         protected set => _teamId = value;
@@ -49,7 +46,7 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
     public Player() {}
 
     public Player(
-        Guid id,
+        Guid externalId,
         string? country,
         DateOnly dateOfBirth,
         string? firstName,
@@ -57,7 +54,7 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
         Team team,
         PlayerType type)
     {
-        Id = id;
+        ExternalId = externalId;
         Country = country;
         DateOfBirth = dateOfBirth;
         FirstName = firstName;

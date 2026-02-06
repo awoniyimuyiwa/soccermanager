@@ -30,7 +30,7 @@ public class PlayersController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PlayerDto>> View(Guid id)
     {
-        var player = await _playerRepository.Get(p => p.Id == id);
+        var player = await _playerRepository.Get(p => p.ExternalId == id);
 
         if (player is null)
         {
@@ -72,7 +72,7 @@ public class PlayersController(
         {
             var transfer = await _playerService.PlaceOnTransferList(
                 id,
-                Guid.Parse(userId!),
+                long.Parse(userId!),
                 input);
 
             return Ok(transfer);
@@ -118,7 +118,7 @@ public class PlayersController(
         {
             var player = await _playerService.Update(
                 id,
-                Guid.Parse(userId!),
+                long.Parse(userId!),
                 input);
 
             return Ok(player);

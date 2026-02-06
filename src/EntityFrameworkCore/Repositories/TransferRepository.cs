@@ -13,14 +13,14 @@ class TransferRepository(ApplicationDbContext context) : BaseRepository<Transfer
         return _context.Set<Transfer>()
            .Where(expression)
            .Select(tr => new FullTransferDto(   
-               tr.Id,
+               tr.ExternalId,
                tr.AskingPrice,   
-               tr.FromTeamId,    
+               tr.FromTeam.ExternalId,    
                tr.FromTeam.Name,    
                tr.Player.FirstName,  
-               tr.PlayerId,    
+               tr.Player.ExternalId,    
                tr.Player.LastName,    
-               tr.ToTeamId,    
+               tr.ToTeam != null ? tr.ToTeam.ExternalId : null,
                tr.ToTeam != null ? tr.ToTeam.Name : null,    
                tr.CreatedAt,    
                tr.UpdatedAt,    
@@ -43,7 +43,7 @@ class TransferRepository(ApplicationDbContext context) : BaseRepository<Transfer
             .AsNoTracking()
             .WhereIf(isPending == true, tr => tr.ToTeamId == null)
             .WhereIf(isPending == false, tr => tr.ToTeamId != null)
-            .WhereIf(ownerId != null, tr => tr.FromTeam.OwnerId == ownerId)
+            .WhereIf(ownerId != null, tr => tr.FromTeam.Owner.ExternalId == ownerId)
             .WhereIf(!string.IsNullOrWhiteSpace(searchTerm), tr =>
             tr.Player.FirstName!.Contains(searchTerm) ||
             tr.Player.LastName!.Contains(searchTerm));
@@ -55,14 +55,14 @@ class TransferRepository(ApplicationDbContext context) : BaseRepository<Transfer
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .Select(tr => new FullTransferDto(
-                tr.Id,
+                tr.ExternalId,
                 tr.AskingPrice,
-                tr.FromTeamId,
+                tr.FromTeam.ExternalId,
                 tr.FromTeam.Name,
                 tr.Player.FirstName,
-                tr.PlayerId,
+                tr.Player.ExternalId,
                 tr.Player.LastName,
-                tr.ToTeamId,
+                tr.ToTeam != null ? tr.ToTeam.ExternalId : null,
                 tr.ToTeam != null ? tr.ToTeam.Name : null,
                 tr.CreatedAt,
                 tr.UpdatedAt,

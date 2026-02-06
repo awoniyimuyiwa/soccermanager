@@ -4,6 +4,7 @@ using EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EntityFrameworkCore.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260206080919_AddExternalIdToTables")]
+    partial class AddExternalIdToTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -46,9 +49,6 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
 
                     b.HasIndex("NormalizedName")
                         .IsUnique()
@@ -129,9 +129,6 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
 
@@ -177,12 +174,9 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("UserId");
 
-                    b.ToTable("AuditLog", (string)null);
+                    b.ToTable("AuditLog");
                 });
 
             modelBuilder.Entity("Domain.Player", b =>
@@ -234,12 +228,9 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("TeamId");
 
-                    b.ToTable("Players", null, t =>
+                    b.ToTable("Players", t =>
                         {
                             t.HasCheckConstraint("CK_Player_Value", "[Value] >= 0");
                         });
@@ -277,12 +268,9 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("PlayerId");
 
-                    b.ToTable("PlayerValues", (string)null);
+                    b.ToTable("PlayerValues");
                 });
 
             modelBuilder.Entity("Domain.Team", b =>
@@ -328,14 +316,11 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("OwnerId", "Name")
                         .IsUnique()
                         .HasFilter("[Name] IS NOT NULL");
 
-                    b.ToTable("Teams", null, t =>
+                    b.ToTable("Teams", t =>
                         {
                             t.HasCheckConstraint("CK_Team_Transfer_Budget", "[TransferBudget] >= 0");
 
@@ -380,16 +365,13 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("FromTeamId");
 
                     b.HasIndex("PlayerId");
 
                     b.HasIndex("ToTeamId");
 
-                    b.ToTable("Transfers", null, t =>
+                    b.ToTable("Transfers", t =>
                         {
                             t.HasCheckConstraint("CK_Transfer_Asking_Price_Min", "[AskingPrice] >= 0");
                         });
@@ -428,14 +410,11 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExternalId")
-                        .IsUnique();
-
                     b.HasIndex("TeamId");
 
                     b.HasIndex("TransferId");
 
-                    b.ToTable("TransferBudgetValues", (string)null);
+                    b.ToTable("TransferBudgetValues");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<long>", b =>

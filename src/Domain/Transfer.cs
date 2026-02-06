@@ -6,20 +6,20 @@
 /// </summary>
 public class Transfer : AuditedEntity, IHasConcurrencyStamp
 {
-    private Guid? _toTeamId;
+    private long? _toTeamId;
     
     private Team? _toTeam;
 
     public decimal AskingPrice { get; set; }
 
-    public Guid FromTeamId { get; protected set; }
+    public long FromTeamId { get; protected set; }
 
-    public Guid PlayerId { get; protected set; }
+    public long PlayerId { get; protected set; }
 
     /// <summary>
     /// Set when transfer completes
     /// </summary>
-    public Guid? ToTeamId
+    public long? ToTeamId
     {
         get => _toTeamId;
         protected set => _toTeamId = value;
@@ -50,12 +50,12 @@ public class Transfer : AuditedEntity, IHasConcurrencyStamp
     public Transfer() {}
 
     public Transfer(
-        Guid id,
+        Guid externalId,
         decimal askingPrice,
         Team fromTeam,
         Player player)
     {
-        Id = id;
+        ExternalId = externalId;
         AskingPrice = askingPrice;
         FromTeam = fromTeam;
         FromTeamId = fromTeam.Id;

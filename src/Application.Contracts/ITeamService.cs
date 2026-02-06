@@ -14,7 +14,7 @@ public interface ITeamService
     /// <returns>Player details</returns>
     Task<IReadOnlyCollection<PlayerDto>> AddPlayers(
         Guid teamId,
-        Guid userId,
+        long userId,
         AddPlayersDto input,
         CancellationToken cancellationToken = default);
 
@@ -43,7 +43,7 @@ public interface ITeamService
     /// <exception cref="EntityNotFoundException">When an entity is not found</exception>
     Task<TeamDto> Update(
         Guid teamId,
-        Guid userId,        
+        long userId,        
         UpdateTeamDto input,
         CancellationToken cancellationToken = default);
 }

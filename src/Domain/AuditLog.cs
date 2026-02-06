@@ -4,7 +4,7 @@ public class AuditLog : Entity
 {
     public string EntityName { get; set; } = "";
 
-    public Guid? EntityId { get; set; }
+    public long? EntityId { get; set; }
 
     /// <summary>
     /// Single JSON diff payload including old/new values
@@ -24,7 +24,7 @@ public class AuditLog : Entity
     /// <summary>
     /// Id of the user the log was created for
     /// </summary>
-    public Guid UserId { get; set; }
+    public long UserId { get; set; }
 
     /// <summary>
     /// User the log was created for

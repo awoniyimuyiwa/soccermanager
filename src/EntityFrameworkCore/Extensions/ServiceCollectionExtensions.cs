@@ -71,7 +71,7 @@ public static class ServiceCollectionExtensions
             {
                 roleManager.CreateAsync(new ApplicationRole
                 {
-                    Id = Guid.NewGuid(),
+                    ExternalId = Guid.NewGuid(),
                     Name = adminRole,
                     NormalizedName = adminRole.ToUpperInvariant()
                 }).GetAwaiter().GetResult();
@@ -82,6 +82,7 @@ public static class ServiceCollectionExtensions
             {
                 var adminUser = new ApplicationUser
                 {
+                    ExternalId = Guid.NewGuid(),
                     UserName = adminUserName,
                     NormalizedUserName = adminUserName!.ToUpperInvariant(),
                     Email = adminEmail,
@@ -92,6 +93,14 @@ public static class ServiceCollectionExtensions
                 if (result.Succeeded)
                 {
                     userManager.AddToRoleAsync(adminUser, adminRole).GetAwaiter().GetResult();
+                }
+            }
+            else
+            {
+                var isInRole = userManager.IsInRoleAsync(existing, adminRole).GetAwaiter().GetResult();
+                if (!isInRole)
+                {
+                    userManager.AddToRoleAsync(existing, adminRole).GetAwaiter().GetResult();
                 }
             }
         }
@@ -115,7 +124,7 @@ public static class ServiceCollectionExtensions
             {
                 await roleManager.CreateAsync(new ApplicationRole
                 {
-                    Id = Guid.NewGuid(),
+                    ExternalId = Guid.NewGuid(),
                     Name = adminRole,
                     NormalizedName = adminRole.ToUpperInvariant()
                 });
@@ -126,6 +135,7 @@ public static class ServiceCollectionExtensions
             {
                 var adminUser = new ApplicationUser
                 {
+                    ExternalId = Guid.NewGuid(),
                     UserName = adminUserName,
                     NormalizedUserName = adminUserName!.ToUpperInvariant(),
                     Email = adminEmail,
@@ -136,6 +146,14 @@ public static class ServiceCollectionExtensions
                 if (result.Succeeded)
                 {
                     await userManager.AddToRoleAsync(adminUser, adminRole);
+                }
+            }
+            else
+            {
+                var isInRole = await userManager.IsInRoleAsync(existing, adminRole);
+                if (!isInRole)
+                {
+                    await userManager.AddToRoleAsync(existing, adminRole);
                 }
             }
         }

@@ -6,6 +6,7 @@ namespace Domain;
 public interface IPlayerRepository : IBaseRepository<Player>
 {
     void AddPlayerValue(PlayerValue playerValue);
+
     Task<PlayerDto?> Get(
         Expression<Func<Player, bool>> expression,
         CancellationToken cancellationToken = default);
