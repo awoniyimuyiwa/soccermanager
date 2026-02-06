@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EntityFrameworkCore;
 
-class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options)
+class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, long>(options)
 {
     public DbSet<Player> Players { get; set; }
 
@@ -29,6 +29,16 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             applicationUser.Property(au => au.FirstName).HasMaxLength(Constants.StringMaxLength);
             applicationUser.Property(au => au.LastName).HasMaxLength(Constants.StringMaxLength);
             applicationUser.Property(au => au.ConcurrencyStamp).HasMaxLength(Constants.StringMaxLength);
+            applicationUser.Property(au => au.Id).ValueGeneratedOnAdd();
+            applicationUser.HasIndex(au => au.ExternalId)
+            .IsUnique();
+        });
+
+        modelBuilder.Entity<ApplicationRole>(applicationRole =>
+        {
+            applicationRole.Property(ar => ar.Id).ValueGeneratedOnAdd();
+            applicationRole.HasIndex(ar => ar.ExternalId)
+            .IsUnique();
         });
 
         modelBuilder.Entity<AuditLog>(auditLog =>
@@ -52,7 +62,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .IsRequired();
 
             player.HasMany<PlayerValue>("PlayerValues")
-            .WithOne()
+            .WithOne(pv => pv.Player)
             .HasForeignKey(p => p.PlayerId)
             .IsRequired();
 
@@ -66,7 +76,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         modelBuilder.Entity<PlayerValue>(playerValue =>
         {            
-            playerValue.Property(pv => pv.Value).HasPrecision(19, 4);            
+            playerValue.Property(pv => pv.Value).HasPrecision(19, 4);
         });
 
         modelBuilder.Entity<Team>(team =>
@@ -83,7 +93,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             team.ToTable(t => t.HasCheckConstraint("CK_Team_Value", $"[Value] >= {Constants.MinPlayerValue}"));
 
             team.HasMany<TransferBudgetValue>("TransferBudgetValues")
-            .WithOne()
+            .WithOne(tbv => tbv.Team)
             .HasForeignKey(tbv => tbv.TeamId)
             .IsRequired();
 
@@ -129,5 +139,20 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             transferBudgetValue.Property(tbv => tbv.Description).HasMaxLength(Constants.StringMaxLength);
             transferBudgetValue.Property(tbv => tbv.Value).HasPrecision(19, 4);
         });
+
+        // Find all entity types that are a subclass of Entity
+        var entityTypes = modelBuilder.Model.GetEntityTypes()
+            .Where(e => typeof(Entity).IsAssignableFrom(e.ClrType) && !e.ClrType.IsAbstract);
+
+        foreach (var entityType in entityTypes)
+        {
+            modelBuilder.Entity(entityType.ClrType)
+                .Property("Id") // Use string if Id is defined in the base class
+                .UseIdentityColumn();
+
+            modelBuilder.Entity(entityType.ClrType)
+                .HasIndex("ExternalId")
+                .IsUnique();
+        }
     }
 }

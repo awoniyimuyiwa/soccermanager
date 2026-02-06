@@ -18,7 +18,7 @@ public interface ITransferService
     /// <exception cref="EntityNotFoundException">When an entity is not found</exception>
     Task<TransferDto> Pay(
         Guid id,
-        Guid userId,
+        long userId,
         string concurrencyStamp,
         CancellationToken cancellationToken = default);
 }

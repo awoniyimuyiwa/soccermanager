@@ -15,14 +15,14 @@ class TeamService(
 
     public async Task<IReadOnlyCollection<PlayerDto>> AddPlayers(
         Guid teamId,
-        Guid userId,
+        long userId,
         AddPlayersDto input,
         CancellationToken cancellationToken = default)
     {
         var team = await _teamRepository.Find(
-            t => t.Id == teamId && t.OwnerId == userId,
+            t => t.ExternalId == teamId && t.OwnerId == userId,
             true,
-            null,
+            ["Owner"],
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Team), teamId);
 
         var players = AddPlayers(
@@ -51,7 +51,7 @@ class TeamService(
         team.TransferBudget += teamDto.TransferBudget;
         _teamRepository.AddTransferBudgetValue(new TransferBudgetValue(
             Guid.NewGuid(),
-            team.Id,
+            team,
             teamDto.TransferBudget,
             Constants.InitialValueDescription));
 
@@ -66,12 +66,12 @@ class TeamService(
 
     public async Task<TeamDto> Update(
         Guid teamId,
-        Guid userId,
+        long userId,
         UpdateTeamDto input,
         CancellationToken cancellationToken = default)
     {
         var team = await _teamRepository.Find(
-            t => t.Id == teamId && t.OwnerId == userId,
+            t => t.ExternalId == teamId && t.OwnerId == userId,
             true,
             ["Owner"],
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Team), teamId);
@@ -113,12 +113,11 @@ class TeamService(
             player.Value += playerDto.Value;
             team.Value += player.Value;
             _playerRepository.Add(player);
-            _playerRepository.AddPlayerValue(new PlayerValue()
-            {
-                PlayerId = player.Id,
-                Type = PlayerValueType.Initial,
-                Value = playerDto.Value
-            });
+            _playerRepository.AddPlayerValue(new PlayerValue(
+                Guid.NewGuid(), 
+                player, 
+                PlayerValueType.Initial,
+                playerDto.Value));
 
             players.Add(player);
         }

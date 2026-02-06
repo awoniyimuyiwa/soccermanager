@@ -97,14 +97,14 @@ public class TeamsController(
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize)
     {
-        var ownerId = _userManager.GetUserId(User);
-        if (ownerId is null)
+        var owner = await _userManager.GetUserAsync(User);
+        if (owner is null)
         {
             return Unauthorized();
         }
 
         var teams = await _teamRepository.Paginate(
-            Guid.Parse(ownerId),
+            owner.ExternalId,
             search,
             pageNumber,
             pageSize);
@@ -123,7 +123,7 @@ public class TeamsController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<TeamDto>> View(Guid id)
     {
-        var team = await _teamRepository.Get(t => t.Id == id);
+        var team = await _teamRepository.Get(t => t.ExternalId == id);
         if (team is null)
         {
             return NotFound();
@@ -160,7 +160,7 @@ public class TeamsController(
         {
             var players = await _teamService.AddPlayers(
                 id,
-                Guid.Parse(userId),
+                long.Parse(userId),
                 new AddPlayersDto()
                 {
                     Players =  [..input.Players.Select(p => p as CreatePlayerDto)],
@@ -224,16 +224,16 @@ public class TeamsController(
         Guid id,
         UpdateTeamModel input)
     {
-        var userId = _userManager.GetUserId(User);
-        if (userId is null)
+        var userIdString = _userManager.GetUserId(User);
+        if (userIdString is null)
         {
             return Unauthorized();
         }
 
-        var userGuid = Guid.Parse(userId);
+        var userId = long.Parse(userIdString);
         if (await _teamRepository.Any(
-            t => t.OwnerId == userGuid
-                 && t.Id != id
+            t => t.OwnerId == userId
+                 && t.ExternalId != id
                  && t.Name == input.Name))
         {
             ModelState.AddModelError(nameof(input.Name), Constants.AlreadyExistsErrorMessage);
@@ -244,7 +244,7 @@ public class TeamsController(
         {
             var team = await _teamService.Update(
                 id,
-                userGuid,
+                userId,
                 input);
 
             return Ok(team);

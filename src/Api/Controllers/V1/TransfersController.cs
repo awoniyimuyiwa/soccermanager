@@ -63,15 +63,15 @@ public class TransfersController(
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize)
     {
-        var userId = _userManager.GetUserId(User);
-        if (userId is null)
+        var user =  await _userManager.GetUserAsync(User);
+        if (user is null)
         {
             return Unauthorized();
         }
 
         var transfers = await _transferRepository.Paginate(
             isPending,
-            Guid.Parse(userId),
+            user.ExternalId,
             search,
             pageNumber,
             pageSize);
@@ -90,7 +90,7 @@ public class TransfersController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<FullTransferDto>> View(Guid id)
     {
-        var transfer = await _transferRepository.FindAsFullDto(t => t.Id == id);
+        var transfer = await _transferRepository.FindAsFullDto(t => t.ExternalId == id);
         if (transfer is null)
         {
             return NotFound();
@@ -132,7 +132,7 @@ public class TransfersController(
         {
             var transfer = await _transferService.Pay(
                 id,
-                Guid.Parse(userId),
+                long.Parse(userId),
                 input.ConcurrencyStamp);
             return Ok(transfer);
         }

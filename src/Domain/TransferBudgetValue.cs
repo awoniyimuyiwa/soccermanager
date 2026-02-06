@@ -7,14 +7,16 @@ public class TransferBudgetValue : AuditedEntity
 {
     public string? Description { get; init; }
 
-    public Guid? TransferId { get; protected set; }
+    public long? TransferId { get; protected set; }
 
-    public Guid TeamId { get; set; }
+    public long TeamId { get; protected set; }
 
     /// <summary>
     /// + for increase, - for decrease
     /// </summary>
     public decimal Value { get; init; }
+
+    public Team Team { get; protected set; } = null!;
 
     /// <summary>
     /// Set when the value is for a player transfer
@@ -24,17 +26,18 @@ public class TransferBudgetValue : AuditedEntity
     public TransferBudgetValue() {}
 
     public TransferBudgetValue(
-        Guid id,
-        Guid teamId,
+        Guid externalId,
+        Team team,
         decimal value,
         string? description = null,
         Transfer? transfer = null)
     {
-        Id = id;
+        ExternalId = externalId;
         Description = description;
+        Team = team;
+        TeamId = team.Id;
         Transfer = transfer;
         TransferId = transfer?.Id;
-        TeamId = teamId;
         Value = value;       
     }
 }

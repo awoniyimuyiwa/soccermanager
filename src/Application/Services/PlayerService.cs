@@ -16,19 +16,19 @@ class PlayerService(
 
     public async Task<TransferDto> PlaceOnTransferList(
         Guid playerId,
-        Guid userId,
+        long userId,
         PlaceOnTransferListDto input,
         CancellationToken cancellationToken = default)
     {
         var player = await _playerRepository.Find(
-            p => p.Id == playerId
+            p => p.ExternalId == playerId
                  && p.Team.OwnerId == userId,
             true,
             ["Team"],
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Player), playerId);
 
         var transfer = await _transferRepository.Find(
-            tf => tf.PlayerId == playerId
+            tf => tf.Player.ExternalId == playerId
                   && tf.ToTeamId == null,
             false,
             null,
@@ -55,15 +55,15 @@ class PlayerService(
 
     public async Task<PlayerDto> Update(
         Guid playerId,
-        Guid userId,
+        long userId,
         UpdatePlayerDto input,
         CancellationToken cancellationToken = default)
     {
         var player = await _playerRepository.Find(
-            p => p.Id == playerId
+            p => p.ExternalId == playerId
                  && p.Team.OwnerId == userId,
             true,
-            null,
+            ["Team"],
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Player), playerId);
 
         player.DateOfBirth = input.DateOfBirth;

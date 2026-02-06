@@ -14,7 +14,7 @@ public class Team : AuditedEntity, IHasConcurrencyStamp
 
     public string? Name { get; set; } 
 
-    public Guid OwnerId { get; protected set; }
+    public long OwnerId { get; protected set; }
 
     /// <summary>
     /// For tracking current transfer budget, sum of all <see cref="TransferBudgetValues"/>
@@ -36,12 +36,12 @@ public class Team : AuditedEntity, IHasConcurrencyStamp
     public Team() {}
 
     public Team(
-        Guid id,
+        Guid externalId,
         string? country,
         string? name, 
         ApplicationUser owner)
     {
-        Id = id;
+        ExternalId = externalId;
         Country = country;
         Name = name;
         Owner = owner;

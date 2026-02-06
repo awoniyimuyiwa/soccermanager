@@ -8,6 +8,7 @@ public record PlayerDto(
     string? FirstName,
     string? LastName,
     Guid TeamId,
+    string? TeamName,
     PlayerType Type,
     decimal Value,
     DateTimeOffset CreatedAt,

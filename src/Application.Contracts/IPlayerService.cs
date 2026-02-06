@@ -18,7 +18,7 @@ namespace Application.Services
         /// <exception cref="EntityNotFoundException">When an entity is not found</exception>
         Task<TransferDto> PlaceOnTransferList(
             Guid playerId,
-            Guid userId,
+            long userId,
             PlaceOnTransferListDto input,
             CancellationToken cancellationToken = default);
 
@@ -34,7 +34,7 @@ namespace Application.Services
         /// <exception cref="EntityNotFoundException">When an entity is not found</exception>
         Task<PlayerDto> Update(
             Guid playerId,
-            Guid userId,
+            long userId,
             UpdatePlayerDto input, 
             CancellationToken cancellationToken = default);
     }

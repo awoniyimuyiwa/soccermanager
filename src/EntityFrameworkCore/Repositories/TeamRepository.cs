@@ -22,11 +22,11 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
     {
         return _context.Set<Team>().Where(expression)
             .Select(t => new TeamDto(
-                t.Id,
+                t.ExternalId,
                 t.Country,
                 t.Name,
                 t.Owner.FirstName,
-                t.OwnerId,
+                t.Owner.ExternalId,
                 t.Owner.LastName,
                 t.TransferBudget,
                 t.Value,
@@ -48,7 +48,7 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
 
         var query = _context.Set<Team>()
             .AsNoTracking()
-            .WhereIf(ownerId != null, t => t.OwnerId == ownerId)
+            .WhereIf(ownerId != null, t => t.Owner.ExternalId == ownerId)
             .WhereIf(!string.IsNullOrWhiteSpace(searchTerm),
                team => team.Name != null && team.Name.Contains(searchTerm!));
 
@@ -59,11 +59,11 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .Select(t => new TeamDto(
-                t.Id,
+                t.ExternalId,
                 t.Country,
                 t.Name,
                 t.Owner.FirstName,
-                t.OwnerId,
+                t.Owner.ExternalId,
                 t.Owner.LastName,
                 t.TransferBudget,
                 t.Value,

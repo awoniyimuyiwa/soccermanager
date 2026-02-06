@@ -69,7 +69,10 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
                 return CreateValidationProblem(IdentityResult.Failed(userManager.ErrorDescriber.InvalidEmail(email)));
             }
 
-            var user = new TUser();
+            var user = new TUser
+            {
+                ExternalId = Guid.NewGuid()
+            };
             await userStore.SetUserNameAsync(user, email, CancellationToken.None);
             await emailStore.SetEmailAsync(user, email, CancellationToken.None);
             var result = await userManager.CreateAsync(user, registration.Password);

@@ -5,17 +5,37 @@
 /// </summary>
 public class PlayerValue : AuditedEntity
 {
-    public required Guid PlayerId { get; init; }
+    public long PlayerId { get; protected set; }
 
-    public Guid? SourceEntityId { get; init; }
+    public long? SourceEntityId { get; init; }
 
     public PlayerValueType Type { get; init; }
 
     /// <summary>
     /// + for increase, - for decrease
     /// </summary>
-    public required decimal Value { get; init; }
+    public decimal Value { get; init; }
+
+    public Player Player { get; protected set; } = null!;
+
+    public PlayerValue() { }
+
+    public PlayerValue(
+        Guid externalId,
+        Player player,
+        PlayerValueType type,
+        decimal value,
+        long? sourceEntityId = null)
+    {
+        ExternalId = externalId;
+        Player = player;
+        PlayerId = player.Id;
+        Type = type;
+        Value = value;
+        SourceEntityId = sourceEntityId;
+    }
 }
+
 
 public enum PlayerValueType
 {

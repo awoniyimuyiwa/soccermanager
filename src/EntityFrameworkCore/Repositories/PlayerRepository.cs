@@ -8,7 +8,6 @@ class PlayerRepository(
     ApplicationDbContext context,
     TimeProvider timeProvider) : BaseRepository<Player>(context), IPlayerRepository
 {
-
     public void AddPlayerValue(PlayerValue playerValue)
     {
         _context.Set<PlayerValue>().Add(playerValue);
@@ -22,13 +21,14 @@ class PlayerRepository(
 
         return _context.Set<Player>().Where(expression)
             .Select(p => new PlayerDto(
-                p.Id,
+                p.ExternalId,
                 p.GetAge(today),
                 p.Country,
                 p.DateOfBirth,
                 p.FirstName,
                 p.LastName,
-                p.TeamId,
+                p.Team.ExternalId,
+                p.Team.Name,
                 p.Type,
                 p.Value,
                 p.CreatedAt,
@@ -52,8 +52,8 @@ class PlayerRepository(
 
         var query = _context.Set<Player>()
             .AsNoTracking()
-            .WhereIf(teamId != null, p => p.TeamId == teamId)
-            .WhereIf(ownerId != null, p => p.Team.OwnerId == ownerId)
+            .WhereIf(teamId != null, p => p.Team.ExternalId == teamId)
+            .WhereIf(ownerId != null, p => p.Team.Owner.ExternalId == ownerId)
             .WhereIf(!string.IsNullOrWhiteSpace(searchTerm),
                 p => (p.FirstName != null && p.FirstName.Contains(searchTerm!))
                      || (p.LastName != null && p.LastName.Contains(searchTerm!)));
@@ -64,13 +64,14 @@ class PlayerRepository(
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .Select(p => new PlayerDto(
-                p.Id,
+                p.ExternalId,
                 p.GetAge(today),
                 p.Country,
                 p.DateOfBirth,
                 p.FirstName,
                 p.LastName,
-                p.TeamId,
+                p.Team.ExternalId,
+                p.Team.Name,
                 p.Type,
                 p.Value,
                 p.CreatedAt,

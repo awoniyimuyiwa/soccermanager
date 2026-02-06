@@ -5,11 +5,11 @@ public static class EntityExtensions
     public static TeamDto ToDto(this Team team)
     {
        return new TeamDto(
-           team.Id,
+           team.ExternalId,
            team.Country,
            team.Name,
            team.Owner.FirstName,
-           team.OwnerId,
+           team.Owner.ExternalId,
            team.Owner.LastName,
            team.TransferBudget,
            team.Value,
@@ -23,13 +23,14 @@ public static class EntityExtensions
         DateOnly today)
     {
         return new PlayerDto(
-            player.Id,
+            player.ExternalId,
             player.GetAge(today),
             player.Country,
             player.DateOfBirth,
             player.FirstName,
             player.LastName,
-            player.TeamId,
+            player.Team.ExternalId,
+            player.Team.Name,
             player.Type,
             player.Value,
             player.CreatedAt,
@@ -41,11 +42,11 @@ public static class EntityExtensions
         this Transfer transfer)
     {
         return new TransferDto(
-            transfer.Id,
+            transfer.ExternalId,
             transfer.AskingPrice,
-            transfer.FromTeamId,
-            transfer.PlayerId,
-            transfer.ToTeamId,
+            transfer.FromTeam.ExternalId,
+            transfer.Player.ExternalId,
+            transfer.ToTeam?.ExternalId,
             transfer.CreatedAt,
             transfer.UpdatedAt,
             transfer.ConcurrencyStamp);
