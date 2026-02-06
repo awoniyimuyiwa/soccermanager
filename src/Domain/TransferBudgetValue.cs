@@ -14,7 +14,7 @@ public class TransferBudgetValue : AuditedEntity
     /// <summary>
     /// + for increase, - for decrease
     /// </summary>
-    public decimal Value { get; init; }
+    public decimal Value { get; init; } = 0;
 
     public Team Team { get; protected set; } = null!;
 

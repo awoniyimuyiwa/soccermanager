@@ -8,7 +8,7 @@ public record TransferDto(
     Guid? ToTeamId,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
-    string? ConcurencyStamp) { }
+    string? ConcurrencyStamp) { }
 
 public record FullTransferDto(
     Guid Id,

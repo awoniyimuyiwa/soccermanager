@@ -1,4 +1,5 @@
 using Domain;
+using EntityFrameworkCore.Extensions;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 
@@ -39,12 +40,15 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
     public async Task<PaginatedList<TeamDto>> Paginate(
         Guid? ownerId = null,
         string searchTerm = "",
-        int pageNumber = Constants.MinPageNumber,
-        int pageSize = Constants.MaxPageSize,
+        int pageNumber = Domain.Constants.MinPageNumber,
+        int pageSize = Domain.Constants.MaxPageSize,
         CancellationToken cancellationToken = default)
     {
-        pageNumber = Math.Max(Constants.MinPageNumber, pageNumber);
-        pageSize = Math.Clamp(pageSize, Constants.MinPageSize, Constants.MaxPageSize);
+        pageNumber = Math.Max(Domain.Constants.MinPageNumber, pageNumber);
+        pageSize = Math.Clamp(
+            pageSize, 
+            Domain.Constants.MinPageSize, 
+            Domain.Constants.MaxPageSize);
 
         var query = _context.Set<Team>()
             .AsNoTracking()

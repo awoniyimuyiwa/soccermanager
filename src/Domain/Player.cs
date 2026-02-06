@@ -22,8 +22,9 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
 
     /// <summary>
     /// For tracking current value, sum of all <see cref="PlayerValues"/>
+    /// Updated using database triggers on changes to <see cref="PlayerValues"/>
     /// </summary>
-    public decimal Value { get; set; }
+    public decimal Value { get;  protected set; } = 0;
 
     public string? ConcurrencyStamp { get; set; }
 

@@ -18,13 +18,15 @@ public class Team : AuditedEntity, IHasConcurrencyStamp
 
     /// <summary>
     /// For tracking current transfer budget, sum of all <see cref="TransferBudgetValues"/>
+    /// Updated using database triggers on changes to <see cref="TransferBudgetValues"/> table
     /// </summary>
-    public decimal TransferBudget { get; set; }
+    public decimal TransferBudget { get; protected set; } = 0;
 
     /// <summary>
     /// For tracking current team vaue, sum of all <see cref="Players"/> values
+    /// Updated using database triggers on changes to <see cref="Players"/> table
     /// </summary>
-    public decimal Value { get; set; }
+    public decimal Value { get; protected set; } = 0;
 
     public ApplicationUser Owner { get; protected set; } = null!; 
 

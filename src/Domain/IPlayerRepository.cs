@@ -11,6 +11,10 @@ public interface IPlayerRepository : IBaseRepository<Player>
         Expression<Func<Player, bool>> expression,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyCollection<PlayerDto>> GetAll(
+        Expression<Func<Player, bool>> expression,
+        CancellationToken cancellationToken = default);
+
     Task<PaginatedList<PlayerDto>> Paginate(
         Guid? teamId = null,
         Guid? ownerId = null, 

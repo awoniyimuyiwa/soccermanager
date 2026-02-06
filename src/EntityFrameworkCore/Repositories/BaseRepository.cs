@@ -34,5 +34,11 @@ abstract class BaseRepository<T>(ApplicationDbContext context) : IBaseRepository
         _context.Update(entity);
     }
 
+    public Task Reload(
+        T entity,
+        CancellationToken cancellationToken = default) =>
+        _context.Entry(entity)
+        .ReloadAsync(cancellationToken);
+
     public virtual void Remove(T entity) => _context.Remove(entity);
 }

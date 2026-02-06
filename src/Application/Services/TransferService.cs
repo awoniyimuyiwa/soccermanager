@@ -46,8 +46,8 @@ class TransferService(
         {
             throw new DomainException(Constants.TransferBudgetIsInsufficientErrorMessage);
         }
-        // Add transfer budget value for audit, update transfer budget directly without loading value collections to improve performance.
-        toTeam.TransferBudget -= transfer.AskingPrice; 
+
+        // Add transfer budget value for audit
         _teamRepository.AddTransferBudgetValue(new TransferBudgetValue(
             Guid.NewGuid(),
             toTeam,
@@ -66,12 +66,8 @@ class TransferService(
             true,
             null,
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Team), transfer.FromTeamId);
-        // Update team value directly without loading value collections to improve performance.     
-        fromTeam.Value -= player.Value;
-
+      
         var playerValueIncreament = (new Random().Next(Constants.MinPlayerValuePercentageIncrease, Constants.MaxPlayerValuePercentageIncrease + 1) / 100m) * player.Value;
-        player.Value += playerValueIncreament;
-        toTeam.Value += player.Value;
         _playerRepository.AddPlayerValue(new PlayerValue(
             Guid.NewGuid(),
             player, 
