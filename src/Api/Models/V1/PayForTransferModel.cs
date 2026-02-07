@@ -1,13 +1,14 @@
+using Application.Contracts;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Models.V1;
 
-public record PayForTransferModel
+public record PayForTransferModel : PayForTransferDto
 {
-    // Just one team per user for now, so no need for team id yet
-
-
     [MaxLength(Domain.Constants.StringMaxLength)]
     [Required]
-    public string ConcurrencyStamp { get; set; } = null!;
+    public override string ConcurrencyStamp { get; set; } = null!;
+
+    [Required]
+    public override Guid ToTeamId { get; set; }
 }

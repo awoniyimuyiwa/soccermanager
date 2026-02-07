@@ -1,4 +1,5 @@
 ﻿using Domain;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -29,6 +30,13 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
         {
             await RollbackTransaction(cancellationToken);
             HandleConcurrenyException(ex);
+            throw;
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx)
+        {
+            await RollbackTransaction(cancellationToken);
+            HandleTriggerAndCheckConstraintError(sqlEx);
+            throw;
         }
         catch
         {
@@ -60,13 +68,28 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
         {
             HandleConcurrenyException(ex);
         }
-        catch
+        catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx)
         {
-            throw;
+            HandleTriggerAndCheckConstraintError(sqlEx);
         }
+        // Any other exception (like a Timeout or Network issue) naturally bubbles up from here.
     }
 
     public void Dispose() => _applicationDbContext.Dispose();
+
+    private static void HandleTriggerAndCheckConstraintError(SqlException sqlEx)
+    {
+        var isTransferBudgetTriggerError = sqlEx.Number == 50000 &&
+            sqlEx.Message.Contains(Domain.Constants.InsufficientTeamTransferBudgetErrorMessage);
+
+        bool isTransferBudgetConstraintError = sqlEx.Number == 547 &&
+            sqlEx.Message.Contains(Constants.TeamTransferBudgetCheckConstraintName);
+
+        if (isTransferBudgetTriggerError || isTransferBudgetConstraintError)
+        {
+            throw new DomainException(Domain.Constants.InsufficientTeamTransferBudgetErrorMessage);
+        }
+    }
 
     private static void HandleConcurrenyException(DbUpdateConcurrencyException ex)
     {

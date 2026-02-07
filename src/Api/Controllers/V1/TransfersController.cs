@@ -100,7 +100,7 @@ public class TransfersController(
     }
 
     /// <summary>
-    /// Pay for transfer: <paramref name="id"/>, move player to destination team owned by logged in user, 
+    /// Pay for transfer: <paramref name="id"/>, move player to destination team owned by logged in user specified in <paramref name="input"/> 
     /// update player value, source team and destination team tansfer budget and values.
     /// </summary>
     /// <param name="id">Transfer id</param>
@@ -128,22 +128,10 @@ public class TransfersController(
             return Unauthorized();
         }
 
-        try
-        {
-            var transfer = await _transferService.Pay(
-                id,
-                long.Parse(userId),
-                input.ConcurrencyStamp);
-            return Ok(transfer);
-        }
-        catch (EntityNotFoundException e)
-        {
-            return NotFound(e.Message);
-        }
-        catch (DomainException e)
-        {
-            // .NET intercepts 403s so use 422
-            return UnprocessableEntity(e.Message);
-        }
+        var transfer = await _transferService.Pay(    
+            id,    
+            input);
+
+        return Ok(transfer);
     }
 }

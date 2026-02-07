@@ -8,6 +8,8 @@ public class Constants
     public const decimal InitialTeamTransferBudget = 5_000_000;
     public const string InitialValueDescription = "Initial";
 
+    public const string InsufficientTeamTransferBudgetErrorMessage = "Insufficient team transfer budget";
+
     public const int MaxPlayerValuePercentageIncrease = 100;
 
     public const int MinPageSize = 1;
@@ -35,8 +37,7 @@ public class Constants
     /// </summary>
     public const int StringMaxLength = 255;
 
-    public const string TransferAlreadyCompletedErrorMessage = "Transfer already completed.";
-    public const string TransferBudgetIsInsufficientErrorMessage = "Transfer budget of destination team is insufficient.";
+    public const string TransferAlreadyCompletedErrorMessage = "Transfer already completed.";  
     public const string TransferCantBeToTheSameTeamErrorMessage = "Transfer can't be to the same team.";
     public const string TransferDescription = "Transfer";   
 }

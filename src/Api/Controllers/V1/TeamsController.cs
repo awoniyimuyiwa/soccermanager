@@ -1,6 +1,5 @@
 using Api.Models.V1;
 using Application.Contracts;
-using Application.Services;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -13,13 +12,11 @@ namespace Api.Controllers.V1;
 [Route("v{version:apiVersion}/teams")]
 public class TeamsController(
     IPlayerRepository playerRepository,
-    IPlayerService playerService,
     ITeamRepository teamRepository,
     ITeamService teamService,
     UserManager<ApplicationUser> userManager) : ControllerBase
 {
     readonly IPlayerRepository _playerRepository = playerRepository;
-    readonly IPlayerService _playerService = playerService;
     readonly ITeamRepository _teamRepository = teamRepository;
     readonly ITeamService _teamService = teamService;
     readonly UserManager<ApplicationUser> _userManager = userManager;
@@ -156,26 +153,19 @@ public class TeamsController(
             return Unauthorized();
         }
 
-        try
-        {
-            var players = await _teamService.AddPlayers(
-                id,
-                long.Parse(userId),
-                new AddPlayersDto()
-                {
-                    Players =  [..input.Players.Select(p => p as CreatePlayerDto)],
-                    TeamConcurrencyStamp = input.TeamConcurrencyStamp
-                });
-
-            return Ok(new PlayersModel
+        var players = await _teamService.AddPlayers(    
+            id,
+            long.Parse(userId),
+            new AddPlayersDto()
             {
-                Players = players
+                Players = [.. input.Players.Select(p => p as CreatePlayerDto)],
+                TeamConcurrencyStamp = input.TeamConcurrencyStamp
             });
-        }
-        catch (EntityNotFoundException e)
+
+        return Ok(new PlayersModel
         {
-            return NotFound(e.Message);
-        }
+            Players = players
+        });
     }
 
     /// <summary>
@@ -240,18 +230,11 @@ public class TeamsController(
             return ValidationProblem();
         }
 
-        try
-        {
-            var team = await _teamService.Update(
-                id,
-                userId,
-                input);
+        var team = await _teamService.Update(   
+            id,
+            userId,
+            input);
 
-            return Ok(team);
-        }
-        catch (EntityNotFoundException e)
-        {
-            return NotFound(e.Message);
-        }
+        return Ok(team);
     }
 }

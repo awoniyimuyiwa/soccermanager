@@ -108,6 +108,9 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             playerValue.HasIndex(pv => pv.PlayerId)
             .IncludeProperties(pv => pv.Value);
 
+            playerValue.HasIndex(pv => new { pv.Type, pv.SourceEntityId })
+            .IsUnique();
+
             playerValue.ToTable(tb => tb.HasTrigger(Constants.PlayerValueTriggerName));
         });
 
@@ -130,7 +133,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
            
             team.Property(t => t.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Domain.Constants.StringMaxLength);
 
-            team.ToTable(t => t.HasCheckConstraint("CK_Team_Transfer_Budget", $"[TransferBudget] >= {Domain.Constants.MinTeamTransferBudget}"));
+            team.ToTable(t => t.HasCheckConstraint(Constants.TeamTransferBudgetCheckConstraintName, $"[TransferBudget] >= {Domain.Constants.MinTeamTransferBudget}"));
             team.ToTable(t => t.HasCheckConstraint("CK_Team_Value", $"[Value] >= {Domain.Constants.MinPlayerValue}"));
 
             team.HasMany<TransferBudgetValue>("TransferBudgetValues")
@@ -186,6 +189,9 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             // Covering index to speed up trigger
             transferBudgetValue.HasIndex(tbv => tbv.TeamId)
             .IncludeProperties(tbv => tbv.Value);
+
+            transferBudgetValue.HasIndex(tbv => tbv.TransferId)
+            .IsUnique();
 
             transferBudgetValue.ToTable(tb => tb.HasTrigger(Constants.TeamTransferBudgetTriggerName));
         });

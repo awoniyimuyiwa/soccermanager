@@ -4,6 +4,7 @@ using EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EntityFrameworkCore.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260207112616_AddTriggerToCheckTeamTransferBudgetSufficiency")]
+    partial class AddTriggerToCheckTeamTransferBudgetSufficiency
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -294,10 +297,6 @@ namespace EntityFrameworkCore.Migrations
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("PlayerId"), new[] { "Value" });
 
-                    b.HasIndex("Type", "SourceEntityId")
-                        .IsUnique()
-                        .HasFilter("[SourceEntityId] IS NOT NULL");
-
                     b.ToTable("PlayerValues", t =>
                         {
                             t.HasTrigger("trg_UpdatePlayerValueFromValues");
@@ -462,9 +461,7 @@ namespace EntityFrameworkCore.Migrations
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("TeamId"), new[] { "Value" });
 
-                    b.HasIndex("TransferId")
-                        .IsUnique()
-                        .HasFilter("[TransferId] IS NOT NULL");
+                    b.HasIndex("TransferId");
 
                     b.ToTable("TransferBudgetValues", t =>
                         {

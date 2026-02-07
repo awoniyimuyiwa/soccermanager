@@ -68,24 +68,12 @@ public class PlayersController(
             return Unauthorized();
         }
 
-        try
-        {
-            var transfer = await _playerService.PlaceOnTransferList(
-                id,
-                long.Parse(userId!),
-                input);
+        var transfer = await _playerService.PlaceOnTransferList(   
+            id,
+            long.Parse(userId!),
+            input);
 
-            return Ok(transfer);
-        }
-        catch (EntityNotFoundException e)
-        {
-            return NotFound(e.Message);
-        }
-        catch (DomainException e)
-        {
-            // .NET intercepts 403s so use 422
-            return UnprocessableEntity(e.Message);
-        }
+        return Ok(transfer);
     }
 
     /// <summary>
@@ -114,18 +102,11 @@ public class PlayersController(
             return Unauthorized();
         }
 
-        try
-        {
-            var player = await _playerService.Update(
-                id,
-                long.Parse(userId!),
-                input);
+        var player = await _playerService.Update(   
+            id,
+            long.Parse(userId!),
+            input);
 
-            return Ok(player);
-        }
-        catch (EntityNotFoundException e)
-        {
-            return NotFound(e.Message);
-        }
+        return Ok(player);
     }
 }

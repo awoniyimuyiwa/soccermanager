@@ -33,6 +33,18 @@ public class ExceptionHandler(ILogger<ExceptionHandler> logger) : IExceptionHand
             problemDetails.Title = "A concurrency conflict occurred.";
             problemDetails.Detail = "Please refresh and try again.";
         }
+        else if (exception is DomainException)
+        {
+            problemDetails.Status = StatusCodes.Status422UnprocessableEntity;
+            problemDetails.Title = exception.Message;
+            problemDetails.Detail = exception.Message;
+        }
+        else if (exception is EntityNotFoundException)
+        {
+            problemDetails.Status = StatusCodes.Status404NotFound;
+            problemDetails.Title = "Not found.";
+            problemDetails.Detail = exception.Message;
+        }
 
         httpContext.Response.StatusCode = problemDetails.Status.Value;
 
