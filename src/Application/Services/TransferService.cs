@@ -15,14 +15,13 @@ class TransferService(
 
     public async Task<TransferDto> Pay(
         Guid id, 
-        long userId,
-        string concurrencyStamp,
+        PayForTransferDto input,
         CancellationToken cancellationToken = default)
     {
         var transfer = await _transferRepository.Find(
             t => t.ExternalId == id,
             true,
-            null,
+            ["FromTeam", "Player"],
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Transfer), id);
         
         if (transfer.ToTeamId is not null)
@@ -30,56 +29,43 @@ class TransferService(
             throw new DomainException(Constants.TransferAlreadyCompletedErrorMessage);
         }
 
-        // Only one team per user for now
-        var toTeam = await _teamRepository.Find(
-            t => t.OwnerId == userId,
-            true,
-            null,
-            cancellationToken) ?? throw new DomainException(Constants.MustOwnATeamForTransferErrorMessage);
-        
-        if (toTeam.Id == transfer.FromTeamId)
+        if (input.ToTeamId == transfer.FromTeam.ExternalId)
         {
             throw new DomainException(Constants.TransferCantBeToTheSameTeamErrorMessage);
         }
 
+        var toTeam = await _teamRepository.Find(
+            t => t.ExternalId == input.ToTeamId,
+            true,
+            null,
+            cancellationToken) ?? throw new EntityNotFoundException(nameof(Team), input.ToTeamId);
+        
         if (toTeam.TransferBudget - transfer.AskingPrice < 0)
         {
-            throw new DomainException(Constants.TransferBudgetIsInsufficientErrorMessage);
+          throw new DomainException(Constants.InsufficientTeamTransferBudgetErrorMessage);
         }
 
-        // Add transfer budget value for audit
+        // Decrease transfer budget by asking price for destination team
         _teamRepository.AddTransferBudgetValue(new TransferBudgetValue(
             Guid.NewGuid(),
             toTeam,
             -transfer.AskingPrice,
             Constants.TransferDescription,
             transfer));
-        
-        var player = await _playerRepository.Find(
-            p => p.Id == transfer.PlayerId,
-            true,
-            null,
-            cancellationToken) ?? throw new EntityNotFoundException(nameof(Player), transfer.PlayerId);
-
-        var fromTeam = await _teamRepository.Find(
-            t => t.Id == transfer.FromTeamId,
-            true,
-            null,
-            cancellationToken) ?? throw new EntityNotFoundException(nameof(Team), transfer.FromTeamId);
-      
-        var playerValueIncreament = (new Random().Next(Constants.MinPlayerValuePercentageIncrease, Constants.MaxPlayerValuePercentageIncrease + 1) / 100m) * player.Value;
+            
+        var playerValueIncreament = (new Random().Next(Constants.MinPlayerValuePercentageIncrease, Constants.MaxPlayerValuePercentageIncrease + 1) / 100m) * transfer.Player.Value;
         _playerRepository.AddPlayerValue(new PlayerValue(
             Guid.NewGuid(),
-            player, 
+            transfer.Player, 
             PlayerValueType.Transfer, 
             playerValueIncreament, 
             transfer.Id));
 
         // Update references only, adding to collections manually when changing relationships may cause EF Core change tracking issues.
-        player.Team = toTeam;
+        transfer.Player.Team = toTeam;
         transfer.ToTeam = toTeam;
 
-        transfer.ConcurrencyStamp = concurrencyStamp;
+        transfer.ConcurrencyStamp = input.ConcurrencyStamp;
 
         await _unitOfWork.SaveChanges(cancellationToken);
 

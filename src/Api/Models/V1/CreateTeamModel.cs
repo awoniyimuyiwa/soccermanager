@@ -19,7 +19,7 @@ public record CreateTeamModel : CreateTeamDto
     /// Default is 5,000,000
     /// </summary>
 
-    [Range(1, int.MaxValue)]
+    [Range(0, int.MaxValue)]
     [Required]
     public override decimal TransferBudget { get; set; } = Domain.Constants.InitialTeamTransferBudget;
 
