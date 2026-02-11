@@ -1,4 +1,5 @@
-﻿using Api.Models.V1;
+﻿using Api.Attributes;
+using Api.Models.V1;
 using Application.Services;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,7 @@ namespace Api.Controllers.V1;
 
 [ApiController]
 [Authorize]
+[Audited]
 [Route("v{version:apiVersion}/players")]
 public class PlayersController(
     IPlayerRepository playerRepository,

@@ -1,11 +1,19 @@
 ﻿using Application.Contracts;
 using Domain;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 namespace Application.Services;
 
 class TeamService(
+    IAuditLogManager auditLogManager,
     IPlayerRepository playerRepository,
     ITeamRepository teamRepository,
-    IUnitOfWork unitOfWork) : ITeamService
+    IUnitOfWork unitOfWork,
+    TimeProvider timeProvider,
+    [FromKeyedServices(Constants.AuditLogJsonSerializationOptionsName)] JsonSerializerOptions auditJsonSerializerOptions) : BaseService(
+        auditLogManager,
+        timeProvider,
+        auditJsonSerializerOptions), ITeamService
 {
     private readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITeamRepository _teamRepository = teamRepository;
@@ -17,6 +25,15 @@ class TeamService(
         AddPlayersDto input,
         CancellationToken cancellationToken = default)
     {
+        LogAction(
+          new
+          {
+              teamId,
+              userId,
+              input,
+          },
+          nameof(AddPlayers));
+
         var team = await _teamRepository.Find(
             t => t.ExternalId == teamId && t.OwnerId == userId,
             true,
@@ -43,6 +60,15 @@ class TeamService(
         IReadOnlyCollection<CreatePlayerDto> playerDtos,
         CancellationToken cancellationToken = default)
     {
+        LogAction(
+           new
+           {
+               ownerId = owner.Id,
+               teamDto,
+               playerDtos,
+           },
+           nameof(Create));
+
         var team = new Team(
             Guid.NewGuid(),
             teamDto.Country,
@@ -75,6 +101,15 @@ class TeamService(
         UpdateTeamDto input,
         CancellationToken cancellationToken = default)
     {
+        LogAction(
+          new
+          {
+              teamId,
+              userId,
+              input,
+          },
+          nameof(Update));
+
         var team = await _teamRepository.Find(
             t => t.ExternalId == teamId && t.OwnerId == userId,
             true,

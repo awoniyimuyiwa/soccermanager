@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 
-namespace Api.ValidationAttributes;
+namespace Api.Attributes;
 
 public sealed class CountryCodeAttribute : ValidationAttribute
 {

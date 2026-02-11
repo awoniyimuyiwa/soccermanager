@@ -21,4 +21,9 @@ public interface IBaseRepository<T> where T : Entity
         CancellationToken cancellationToken = default);
 
     void Remove(T entity);
+
+    Task<int> ExecuteDelete(
+        Expression<Func<T, bool>> expression, 
+        int batchSize, 
+        CancellationToken cancellationToken = default);
 }

@@ -1,14 +1,22 @@
-﻿namespace Domain;
+﻿using System.Collections.Immutable;
+
+namespace Domain;
 
 public class Constants
 {
     public const string AdminRoleName = "Admin";
+
+    public const string AuditLogJsonSerializationOptionsName = "AuditLogJsonSerializationOptions";
+
+    public const string BinaryDataMask = "[Binary Data Omitted]";
 
     public const decimal InitialPlayerValue = 1_000_000;
     public const decimal InitialTeamTransferBudget = 5_000_000;
     public const string InitialValueDescription = "Initial";
 
     public const string InsufficientTeamTransferBudgetErrorMessage = "Insufficient team transfer budget";
+
+    public const string Mask = "***";
 
     public const int MaxPlayerValuePercentageIncrease = 100;
 
@@ -20,11 +28,11 @@ public class Constants
     public const int MinPlayerValuePercentageIncrease = 10;
     public const decimal MinTeamTransferBudget = 0;
 
-    public const string MustOwnATeamForTransferErrorMessage = "Only users who own a team can pay for transfer.";
-
     public const int MaxPageSize = 100;
     public const int MaxPlayerAge = 40;
-    
+
+    public const int MaxAuditLogStringLength = 2000;
+
     public const string PlayerAlreadyOnTransferListErrorMessage = "Player is already on transfer list.";
 
     /// <summary>
@@ -39,5 +47,20 @@ public class Constants
 
     public const string TransferAlreadyCompletedErrorMessage = "Transfer already completed.";  
     public const string TransferCantBeToTheSameTeamErrorMessage = "Transfer can't be to the same team.";
-    public const string TransferDescription = "Transfer";   
+    public const string TransferDescription = "Transfer";
+    public const string TruncationIndicator = "...";
+
+    public static readonly ImmutableHashSet<string> SensitiveFieldNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "access_token",
+        "acessToken",
+        "creditCard",
+        "cvv",
+        "password",
+        "passwordConfirm",
+        "paswordHash",
+        "secret",
+        "securityStamp",
+        "token"
+    }.ToImmutableHashSet();
 }

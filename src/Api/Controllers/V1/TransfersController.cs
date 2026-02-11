@@ -1,3 +1,4 @@
+using Api.Attributes;
 using Api.Models.V1;
 using Application.Contracts;
 using Domain;
@@ -9,6 +10,7 @@ namespace Api.Controllers.V1;
 
 [ApiController]
 [Authorize]
+[Audited]
 [Route("v{version:apiVersion}/transfers")]
 public class TransfersController(
     ITransferRepository transferRepository,

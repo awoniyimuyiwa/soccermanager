@@ -1,13 +1,20 @@
 ﻿using Application.Contracts;
 using Domain;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 
 namespace Application.Services;
 
 class PlayerService(
+    IAuditLogManager auditLogManager,
     IPlayerRepository playerRepository,
     ITransferRepository transferRepository,
     IUnitOfWork unitOfWork,
-    TimeProvider timeProvider) : IPlayerService
+    TimeProvider timeProvider,
+    [FromKeyedServices(Constants.AuditLogJsonSerializationOptionsName)] JsonSerializerOptions auditJsonSerializerOptions) : BaseService(
+        auditLogManager, 
+        timeProvider, 
+        auditJsonSerializerOptions), IPlayerService
 {
     readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITransferRepository _transferRepository = transferRepository;
@@ -20,6 +27,15 @@ class PlayerService(
         PlaceOnTransferListDto input,
         CancellationToken cancellationToken = default)
     {
+        LogAction(
+            new
+            {
+                playerId,
+                userId,
+                input
+            },
+            nameof(PlaceOnTransferList));
+
         var player = await _playerRepository.Find(
             p => p.ExternalId == playerId
                  && p.Team.OwnerId == userId,

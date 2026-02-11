@@ -12,6 +12,7 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddEntityFrameworkServices(this IServiceCollection services)
     {
+        services.AddScoped<IAuditLogManager, AuditLogManager>();
         services.AddScoped<CustomSaveChangesInterceptor>();
         services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
         {
