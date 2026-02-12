@@ -7,7 +7,10 @@ using Application.Extensions;
 using Asp.Versioning;
 using Domain;
 using EntityFrameworkCore.Extensions;
+using Medallion.Threading;
+using Medallion.Threading.SqlServer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.DependencyInjection;
 using Scalar.AspNetCore;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -98,14 +101,19 @@ builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
 
 builder.Services.AddApplicationServices();
 
-builder.Services.AddSingleton<AuditLogCleanupStatus>();
+builder.Services.AddSingleton<IDistributedLockProvider>((serviceProvider) =>
+{
+    // Configure distributed lock rovider here, SQL server, Postgresql or Redis. Zookeeper requires ZooKeeperNetEx library
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
-// Register as a singleton so it can be injected as the trigger interface
-builder.Services.AddSingleton<AuditLogCleanupService>();
-builder.Services.AddSingleton<IAuditLogCleanupTrigger>(sp => sp.GetRequiredService<AuditLogCleanupService>());
+    return new SqlDistributedSynchronizationProvider(connectionString);
+});
 
-// Register as a hosted service
-builder.Services.AddHostedService(sp => sp.GetRequiredService<AuditLogCleanupService>());
+builder.Services.AddSingleton<AuditLogCleanupTrigger>();
+builder.Services.AddSingleton<IAuditLogCleanupTrigger>(sp => sp.GetRequiredService<AuditLogCleanupTrigger>());
+builder.Services.AddSingleton<IAuditLogCleanupReader>(sp => sp.GetRequiredService<AuditLogCleanupTrigger>());
+builder.Services.AddHostedService<AuditLogCleanupService>();
 
 builder.Services.AddAuthorization();
 

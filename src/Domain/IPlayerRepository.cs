@@ -3,7 +3,7 @@ using System.Linq.Expressions;
 
 namespace Domain;
 
-public interface IPlayerRepository : IBaseRepository<Player>
+public interface IPlayerRepository : IRepository<Player>
 {
     void AddPlayerValue(PlayerValue playerValue);
 

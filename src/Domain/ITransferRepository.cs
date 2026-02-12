@@ -3,7 +3,7 @@ using System.Linq.Expressions;
 
 namespace Domain;
 
-public interface ITransferRepository : IBaseRepository<Transfer>
+public interface ITransferRepository : IRepository<Transfer>
 {
     public Task<FullTransferDto?> FindAsFullDto(
         Expression<Func<Transfer, bool>> expression,

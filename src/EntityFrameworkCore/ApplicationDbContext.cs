@@ -22,6 +22,8 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
     public DbSet<AuditLog> AuditLogs { get; set; }
 
+    public DbSet<BackgroundServiceStat> BackgroundServiceStats { get; set; }
+
     public DbSet<EntityChange> EntityChanges { get; set; }
 
     public DbSet<Player> Players { get; set; }
@@ -88,6 +90,15 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .WithOne()
             .HasForeignKey(ec => ec.AuditLogId)
             .IsRequired();
+        });
+
+        modelBuilder.Entity<BackgroundServiceStat>(backgroundServiceStat =>
+        {
+            backgroundServiceStat.Property(bss => bss.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Domain.Constants.StringMaxLength);
+
+            backgroundServiceStat
+            .HasIndex(bss => bss.Type)
+            .IsUnique();
         });
 
         modelBuilder.Entity<EntityChange>(entityChange =>
@@ -235,7 +246,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         // Find all entity types that are a subclass of Entity
         var entityTypes = modelBuilder.Model.GetEntityTypes()
-            .Where(e => typeof(AuditedEntity).IsAssignableFrom(e.ClrType) && !e.ClrType.IsAbstract);
+            .Where(e => typeof(Entity).IsAssignableFrom(e.ClrType) && !e.ClrType.IsAbstract);
 
         foreach (var entityType in entityTypes)
         {

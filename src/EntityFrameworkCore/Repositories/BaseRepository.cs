@@ -4,7 +4,7 @@ using System.Linq.Expressions;
 
 namespace EntityFrameworkCore.Repositories;
 
-abstract class BaseRepository<T>(ApplicationDbContext context) : IBaseRepository<T> where T : Entity
+abstract class BaseRepository<T>(ApplicationDbContext context) : IRepository<T> where T : Entity
 {
     protected readonly ApplicationDbContext _context = context;
 
