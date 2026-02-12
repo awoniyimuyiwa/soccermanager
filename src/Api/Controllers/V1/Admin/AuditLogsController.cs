@@ -2,6 +2,7 @@
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace Api.Controllers.V1.Admin;
 
@@ -9,12 +10,12 @@ namespace Api.Controllers.V1.Admin;
 [Authorize(Roles = Domain.Constants.AdminRoleName)]
 [Route("v{version:apiVersion}/admin/audit-logs")]
 public class AuditLogsController(
-    IAuditLogCleanupTrigger auditCleanupTrigger,
-    IAuditLogRepository auditLogRepository) : ControllerBase
+    IAuditLogRepository auditLogRepository,
+    IBackgroundServiceStatRepository backgroundServiceStatRepository) : ControllerBase
 {
     readonly IAuditLogRepository _auditLogRepository = auditLogRepository;
-    readonly IAuditLogCleanupTrigger _auditCleanupTrigger = auditCleanupTrigger;
-
+    readonly IBackgroundServiceStatRepository _backgroundServiceStatRepository = backgroundServiceStatRepository;
+   
     /// <summary>
     /// Get audit logs
     /// </summary>
@@ -87,29 +88,36 @@ public class AuditLogsController(
     /// </summary>
     /// <response code="202">When there are no errors</response>
     [HttpPost("cleanup")]
-    [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult Cleanup()
+    public IActionResult Cleanup([FromServices] IAuditLogCleanupTrigger trigger)
     {
-        _auditCleanupTrigger.Trigger();
+        trigger.Trigger();
 
         return Accepted("Audit log cleanup triggered manually.");
     }
 
     /// <summary>
-    /// Get clean up status
+    /// Get audit log clean up status
     /// </summary>
-    /// <param name="status"></param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("cleanup-status")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public IActionResult CleanupStatus([FromServices] AuditLogCleanupStatus status)
+    public async Task<IActionResult> CleanupStatus()
     {
+        var dto = await _backgroundServiceStatRepository.Get
+            (bss => bss.Type == BackgroundServiceStatType.AuditLogCleanUp);
+
+        if (dto is null)
+        {
+            return NotFound("Audit log cleanup has never run.");
+        }
+
         return Ok(new
         {
-            status.DeletedInCurrentRun,
-            status.IsRunning,
-            status.LastRun,
-            status.TotalDeleted
+            Details = !string.IsNullOrWhiteSpace(dto.Details)
+            ? JsonSerializer.Deserialize<object>(dto.Details) : null,
+            dto.LastRunAt,
+            dto.TotalInLastRun,
+            dto.Total
         });
     }
 }

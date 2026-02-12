@@ -2,7 +2,7 @@
 
 namespace Domain;
 
-public interface IBaseRepository<T> where T : Entity
+public interface IRepository<T> where T : Entity
 {
     void Add(T entity);
 

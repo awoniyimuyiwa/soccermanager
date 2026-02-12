@@ -3,7 +3,7 @@ using System.Linq.Expressions;
 
 namespace Domain;
 
-public interface IAuditLogRepository : IBaseRepository<AuditLog>
+public interface IAuditLogRepository : IRepository<AuditLog>
 {
     Task<FullAuditLogDto?> Get(
         Expression<Func<AuditLog, bool>> expression,

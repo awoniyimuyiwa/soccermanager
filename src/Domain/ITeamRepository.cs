@@ -3,7 +3,7 @@ using System.Linq.Expressions;
 
 namespace Domain;
 
-public interface ITeamRepository : IBaseRepository<Team>
+public interface ITeamRepository : IRepository<Team>
 {
     void AddTransferBudgetValue(
         TransferBudgetValue transferBudgetValue);
