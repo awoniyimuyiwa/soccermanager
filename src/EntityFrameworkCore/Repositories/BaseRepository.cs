@@ -41,4 +41,13 @@ abstract class BaseRepository<T>(ApplicationDbContext context) : IBaseRepository
         .ReloadAsync(cancellationToken);
 
     public virtual void Remove(T entity) => _context.Remove(entity);
+
+    public Task<int> ExecuteDelete(
+       Expression<Func<T, bool>> expression,
+       int batchSize = 1000,
+       CancellationToken cancellationToken = default) =>
+        _context.Set<T>()
+           .Where(expression)
+           .Take(batchSize)
+           .ExecuteDeleteAsync(cancellationToken);
 }

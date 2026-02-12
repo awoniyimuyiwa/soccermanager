@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace Api.ValidationAttributes;
+namespace Api.Attributes;
 
 public class AgeRangeAttribute(
     int min, 

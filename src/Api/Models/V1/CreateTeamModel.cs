@@ -1,4 +1,4 @@
-using Api.ValidationAttributes;
+using Api.Attributes;
 using Application.Contracts;
 using System.ComponentModel.DataAnnotations;
 

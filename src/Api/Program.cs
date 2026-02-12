@@ -1,19 +1,36 @@
 using Api;
+using Api.BackgroundServices;
 using Api.Controllers.V1;
 using Api.MiddleWares;
+using Api.Options;
 using Application.Extensions;
 using Asp.Versioning;
 using Domain;
 using EntityFrameworkCore.Extensions;
+using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+    // Clear the default (which only allows loopback)
+    //options.KnownProxies.Clear();
+
+    // Add the IP of Load Balancer or Nginx server
+    // options.KnownProxies.Add(IPAddress.Parse("10.0.0.100"));
+});
+
+builder.Services.Configure<AuditLogOptions>(builder.Configuration.GetSection("AuditLogOptions"));
 
 // Add services to the container.
+builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddExceptionHandler<ExceptionHandler>();
 
@@ -64,6 +81,15 @@ builder.Services.AddApiVersioning(options =>
 
 builder.Services.AddEndpointsApiExplorer();
 
+builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOptionsName, new JsonSerializerOptions
+{
+    TypeInfoResolver = new DefaultJsonTypeInfoResolver 
+    { 
+        Modifiers = { AuditLogJsonModifier.Modify } 
+    },
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+});
+
 builder.Services.AddEntityFrameworkServices();
 
 builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
@@ -72,9 +98,20 @@ builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
 
 builder.Services.AddApplicationServices();
 
+builder.Services.AddSingleton<AuditLogCleanupStatus>();
+
+// Register as a singleton so it can be injected as the trigger interface
+builder.Services.AddSingleton<AuditLogCleanupService>();
+builder.Services.AddSingleton<IAuditLogCleanupTrigger>(sp => sp.GetRequiredService<AuditLogCleanupService>());
+
+// Register as a hosted service
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AuditLogCleanupService>());
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -100,11 +137,13 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
-app.UseMiddleware<TransactionMiddleware>();
+app.UseMiddleware<AuditLogMiddleware>() // AuditMiddleware should be as early as possible to capture all necessary information.
+    .UseMiddleware<TransactionMiddleware>();
 
 app.MapGroup("v{version:apiVersion}/auth")
     .MapCustomIdentityApiV1<ApplicationUser>()
     .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build());
+    //.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
 
 app.MapControllers();
 

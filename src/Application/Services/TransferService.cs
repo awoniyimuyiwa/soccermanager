@@ -1,12 +1,20 @@
 ﻿using Application.Contracts;
 using Domain;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 namespace Application.Services;
 
 class TransferService(
+    IAuditLogManager auditLogManager,
     IPlayerRepository playerRepository,
     ITeamRepository teamRepository,
     ITransferRepository transferRepository,
-    IUnitOfWork unitOfWork) : ITransferService
+    IUnitOfWork unitOfWork,
+    TimeProvider timeProvider,
+    [FromKeyedServices(Constants.AuditLogJsonSerializationOptionsName)] JsonSerializerOptions auditJsonSerializerOptions) : BaseService(
+        auditLogManager,
+        timeProvider,
+        auditJsonSerializerOptions), ITransferService
 {
     readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITeamRepository _teamRepository = teamRepository;
@@ -18,6 +26,14 @@ class TransferService(
         PayForTransferDto input,
         CancellationToken cancellationToken = default)
     {
+        LogAction(    
+            new    
+            {    
+                TransferId = id,
+                input   
+            }, 
+            nameof(Pay));
+
         var transfer = await _transferRepository.Find(
             t => t.ExternalId == id,
             true,

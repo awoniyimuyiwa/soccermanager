@@ -18,6 +18,12 @@ namespace EntityFrameworkCore;
 /// </remarks>
 class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, long>(options)
 {
+    public DbSet<AuditLogAction> AuditLogActions { get; set; }
+
+    public DbSet<AuditLog> AuditLogs { get; set; }
+
+    public DbSet<EntityChange> EntityChanges { get; set; }
+
     public DbSet<Player> Players { get; set; }
 
     public DbSet<PlayerValue> PlayerValues { get; set; }
@@ -44,6 +50,11 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             applicationUser.Property(au => au.Id).ValueGeneratedOnAdd();
             applicationUser.HasIndex(au => au.ExternalId)
             .IsUnique();
+
+            applicationUser.HasMany<AuditLog>()
+            .WithOne(al => al.User)
+            .HasForeignKey(al => al.UserId)
+            .IsRequired();
         });
 
         modelBuilder.Entity<ApplicationRole>(applicationRole =>
@@ -53,12 +64,38 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .IsUnique();
         });
 
-        modelBuilder.Entity<AuditLog>(auditLog =>
+        modelBuilder.Entity<AuditLogAction>(auditLogAction =>
         {
-            auditLog.Property(al => al.EntityName).HasMaxLength(Domain.Constants.StringMaxLength).IsRequired();
+            auditLogAction.Property(ala => ala.MethodName).HasMaxLength(Domain.Constants.StringMaxLength);
+            auditLogAction.Property(ala => ala.ServiceName).HasMaxLength(Domain.Constants.StringMaxLength);
         });
 
-        modelBuilder.Entity<Player>(player =>
+        modelBuilder.Entity<AuditLog>(auditLog =>
+        {
+            auditLog.Property(al => al.BrowserInfo).HasMaxLength(Domain.Constants.StringMaxLength);
+            auditLog.Property(al => al.Exception).HasMaxLength(Domain.Constants.MaxAuditLogStringLength);
+            auditLog.Property(al => al.HttpMethod).HasMaxLength(Domain.Constants.StringMaxLength);
+            auditLog.Property(al => al.IpAddress).HasMaxLength(45);
+            auditLog.Property(al => al.RequestId).HasMaxLength(Domain.Constants.StringMaxLength);
+            auditLog.Property(al => al.Url).HasMaxLength(Domain.Constants.StringMaxLength);
+
+            auditLog.HasMany(al => al.AuditLogActions)
+            .WithOne()
+            .HasForeignKey(aa => aa.AuditLogId)
+            .IsRequired();
+
+            auditLog.HasMany(al => al.EntityChanges)
+            .WithOne()
+            .HasForeignKey(ec => ec.AuditLogId)
+            .IsRequired();
+        });
+
+        modelBuilder.Entity<EntityChange>(entityChange =>
+        {
+            entityChange.Property(ec => ec.EntityName).HasMaxLength(Domain.Constants.StringMaxLength).IsRequired();
+        });
+
+        modelBuilder.Entity<Player>(player => 
         {
             player.Property(p => p.Country).HasMaxLength(Domain.Constants.StringMaxLength);
             player.Property(p => p.FirstName).HasMaxLength(Domain.Constants.StringMaxLength);
@@ -171,7 +208,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .OnDelete(DeleteBehavior.Restrict);
 
             // Tell EF to use the property, which triggers your setter logic
-            transfer.Navigation(t => t.ToTeam)
+            transfer.Navigation<Team>(t => t.ToTeam)
             .UsePropertyAccessMode(PropertyAccessMode.Property);
 
             transfer.Property(t => t.ToTeamId)
@@ -198,7 +235,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         // Find all entity types that are a subclass of Entity
         var entityTypes = modelBuilder.Model.GetEntityTypes()
-            .Where(e => typeof(Entity).IsAssignableFrom(e.ClrType) && !e.ClrType.IsAbstract);
+            .Where(e => typeof(AuditedEntity).IsAssignableFrom(e.ClrType) && !e.ClrType.IsAbstract);
 
         foreach (var entityType in entityTypes)
         {
