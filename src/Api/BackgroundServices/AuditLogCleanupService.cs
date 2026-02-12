@@ -4,6 +4,25 @@ using Microsoft.Extensions.Options;
 
 namespace Api.BackgroundServices;
 
+/// <summary>
+/// Removes audit logs older than a calculated cutoff. This process runs automatically 
+/// every 24 hours and can also be triggered manually via administrative actions.
+/// </summary>
+/// <param name="auditCleanupStatus">Tracks the state and last run time of the cleanup process.</param>
+/// <param name="scopeFactory">Used to resolve database contexts within the background task.</param>
+/// <param name="optionsMonitor">Provides access to configurable retention policies and intervals.</param>
+/// <param name="logger">Handles telemetry and error reporting for the cleanup operation.</param>
+/// <param name="timeProvider">The abstraction used to determine the current system time for cutoff logic.</param>
+/// <remarks>
+/// <para>
+/// <b>Scaling Note:</b> This implementation does not natively support horizontal scaling. 
+/// To prevent concurrent execution across multiple instances, this service should be:
+/// <list type="bullet">
+/// <item><description>Isolated to a single-instance background project.</description></item>
+/// <item><description>Or protected by a distributed lock (e.g., Redis, SQL, or Zookeeper).</description></item>
+/// </list>
+/// </para>
+/// </remarks>
 public class AuditLogCleanupService(
     AuditLogCleanupStatus auditCleanupStatus,
     IServiceScopeFactory scopeFactory,
@@ -13,27 +32,40 @@ public class AuditLogCleanupService(
     : BackgroundService, IAuditLogCleanupTrigger
 {
     /// <summary>
-    /// Start with 0 available slot for threads
+    /// Initializes the semaphore with zero available slots to block the background worker 
+    /// until a manual or scheduled signal is received.
     /// </summary>
     readonly SemaphoreSlim _signal = new(0);
 
     readonly AuditLogCleanupStatus _status = auditCleanupStatus;
 
     /// <summary>
-    /// Increment available slot for threads on <see cref="_signal"/> by 1. 
+    /// Signals the background worker to begin a cleanup cycle by releasing a slot in the <see cref="_signal"/> semaphore.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Thread Safety Note:</b> While <see cref="ExecuteAsync"/> runs on a single background thread, 
+    /// this method can be invoked concurrently by multiple web request threads. 
+    /// </para>
+    /// <para>
+    /// To ensure thread safety, clean up execution and access to shared state like <see cref="_status"/> is synchronized using <see cref="SemaphoreSlim"/>. 
+    /// This prevents race conditions when multiple manuals triggers and the scheduled 24-hour interval overlap.
+    /// </para>
+    /// </remarks>
     public void Trigger() => _signal.Release();
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            // Wait for either the 24hrs or a release
+            // Wait for either 24hrs or a release
             await _signal.WaitAsync(TimeSpan.FromHours(24), cancellationToken);
 
-            // After timeout or release, if available slot is still more than 0 due to Release being called rapidly,
-            // quickly drain available slot back to 0 by using WaitAsync() to decrement by 1 until available slot is 0,
-            // to limit concurrent clean up processes.
+            // After timeout or release signal is received, drain any additional slots in the semaphore.
+            // This prevents "burst" triggers (e.g., multiple rapid manual requests) from 
+            // queuing up multiple back-to-back cleanup cycles. By decrementing the count to 0, 
+            // we ensure that only one cleanup operation proceeds and subsequent redundant 
+            // signals are cleared.
             while (_signal.CurrentCount > 0)
             {              
                 await _signal.WaitAsync(cancellationToken);
