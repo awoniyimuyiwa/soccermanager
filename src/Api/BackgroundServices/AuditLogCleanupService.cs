@@ -2,78 +2,126 @@
 using Domain;
 using Medallion.Threading;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.Registry;
+using System.Text.Json;
 using System.Threading.Channels;
 
 namespace Api.BackgroundServices;
 
 /// <summary>
-/// Removes audit logs older than a calculated cutoff. This process runs automatically 
-/// every 24 hours and can also be triggered manually via administrative actions.
+/// Deletes expired audit logs based on configured retention policies.
+/// Runs automatically at 02:00 UTC or via manual trigger.
 /// </summary>
-/// <param name="auditLogCleanupReader"></param>
-/// <param name="distributedLockProvider"></param>
-/// /// <param name="logger">Handles telemetry and error reporting for the cleanup operation.</param>
-/// <param name="optionsMonitor">Provides access to configurable retention policies and intervals.</param>
-/// <param name="scopeFactory">Used to resolve database contexts within the background task.</param>
-/// <param name="timeProvider">The abstraction used to determine the current system time for cutoff logic.</param>
+/// <param name="auditLogCleanupReader">Accesses logs for cleanup.</param>
+/// <param name="distributedLockProvider">Prevents concurrent cleanup executions.</param>
+/// <param name="logger">Telemetry and error logger.</param>
+/// <param name="optionsMonitor">Configuration settings for retention.</param>
+/// <param name="scopeFactory">Service scope factory for DB operations.</param>
+/// <param name="timeProvider">System time abstraction.</param>
+/// <param name="resiliencePipelineProvider">Retry and resilience logic provider.</param>
 public class AuditLogCleanupService(
     IAuditLogCleanupReader auditLogCleanupReader,
     IDistributedLockProvider distributedLockProvider,
     ILogger<AuditLogCleanupService> logger,
     IOptionsMonitor<AuditLogOptions> optionsMonitor, // Use Monitor for real-time updates
-    IServiceScopeFactory scopeFactory,                                             
+    IServiceScopeFactory scopeFactory,
+    ResiliencePipelineProvider<string> resiliencePipelineProvider,
     TimeProvider timeProvider) : BackgroundService
 {
-    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+    readonly ResiliencePipeline<IDistributedSynchronizationHandle?> _resiliencePipeline = resiliencePipelineProvider.GetPipeline<IDistributedSynchronizationHandle?>(Constants.DistributedLockResiliencePolicy);
+    
+    protected override async Task ExecuteAsync(CancellationToken serviceCancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        while (!serviceCancellationToken.IsCancellationRequested)
         {
-            await using var handle = await distributedLockProvider.TryAcquireLockAsync(
-                "audit_log_cleanup_lock",
-                cancellationToken: cancellationToken);
-
-            if (handle != null)
+            try
             {
-               await Run(cancellationToken);
+                using var scope = scopeFactory.CreateScope();               
+                var backgroundServiceStatRepository = scope.ServiceProvider.GetRequiredService<IBackgroundServiceStatRepository>();
+
+                var lastRun = (await backgroundServiceStatRepository.Get(bss => bss.Type == BackgroundServiceStatType.AuditLogCleanUp, serviceCancellationToken))?.LastRunAt.DateTime;
+                var now = timeProvider.GetUtcNow();
+                var scheduledToday = now.Date.AddHours(2); // 2AM everyday
+                var shouldRunImmediately = lastRun == null || (lastRun < scheduledToday && now >= scheduledToday);
+
+                if (!shouldRunImmediately)
+                {
+                    // Create the tasks for the two "Wake Up" conditions
+                    var nextRunTime = now >= scheduledToday ? scheduledToday.AddDays(1) : scheduledToday;
+                    var timerTask = Task.Delay(nextRunTime - now, serviceCancellationToken);
+                    var manualTriggerTask = auditLogCleanupReader.Reader.WaitToReadAsync(serviceCancellationToken).AsTask();
+
+                    // Execution pauses here until ONE of these completes
+                    var completed = await Task.WhenAny(timerTask, manualTriggerTask);
+                   
+                    // If the manual trigger woke the thread up, consume the message to "reset" the door
+                    if (completed == manualTriggerTask && manualTriggerTask.Result)
+                    {
+                        auditLogCleanupReader.Reader.TryRead(out _);
+                    }
+                       
+                    // If thread was woken by a trigger, check the distibuted lock again
+                }
+
+                await using var handle = await _resiliencePipeline.ExecuteAsync(async resilienceCancellationToken =>
+                {
+                    // No TTL, hold the lock and lock as long the service is alive
+                    return await distributedLockProvider.TryAcquireLockAsync(
+                        "audit_log_cleanup_lock",
+                        cancellationToken: resilienceCancellationToken);
+                }, serviceCancellationToken);
+
+                if (handle is not null)
+                {
+                    await Run(
+                        scope.ServiceProvider, 
+                        backgroundServiceStatRepository, 
+                        serviceCancellationToken);   
+                }
+                else if (shouldRunImmediately) 
+                {
+                    // Small safety delay if we were in a 'shouldRunImmediately' state (e.g it's 3AM but he 2AM run hasn't happened
+                    await Task.Delay(TimeSpan.FromMinutes(1), serviceCancellationToken);
+                }
             }
-
-            // Create the tasks for the two "Wake Up" conditions
-            var timerTask = Task.Delay(TimeSpan.FromHours(24), cancellationToken);
-            var manualTriggerTask = auditLogCleanupReader.Reader.WaitToReadAsync(cancellationToken).AsTask();
-
-            // Execution pauses here until ONE of these completes
-            await Task.WhenAny(timerTask, manualTriggerTask);
-
-            // If the manual trigger woke the thread up, consume the message to "reset" the door
-            if (manualTriggerTask.IsCompletedSuccessfully && manualTriggerTask.Result)
+            catch (OperationCanceledException)
             {
-                auditLogCleanupReader.Reader.TryRead(out _);
+                if (logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("Audit log clean up background service is shutting down.");
+                }
             }
-
-            // If thread was woken by a trigger, check the distibuted lock again
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Audit log clean up background service crashed! Restarting in 10 seconds...");
+                
+                // Wait to avoid high CPU crash loop
+                await Task.Delay(TimeSpan.FromSeconds(10), serviceCancellationToken);
+            }
         }
     }
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(
+        IServiceProvider serviceProvider,
+        IBackgroundServiceStatRepository backgroundServiceStatRepository,
+        CancellationToken cancellationToken)
     {
-        // Read option value inside the loop to get the latest setting
-        var options = optionsMonitor.CurrentValue;
-
-        if (logger.IsEnabled(LogLevel.Information))
-        {
-            logger.LogInformation("Starting audit log cleanup (Retention: {Minutes} minutes)...", options.RetentionMinutes);
-        }
-
         try
         {
-            var cutoff = timeProvider.GetUtcNow().AddMinutes(-options.RetentionMinutes);
-            using var scope = scopeFactory.CreateScope();
-            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-            var auditLogRepository = scope.ServiceProvider.GetRequiredService<IAuditLogRepository>();
-            var backgroundServiceStatRepository = scope.ServiceProvider.GetRequiredService<IBackgroundServiceStatRepository>();
-            var deleted = 0;
-            int deletedInBatch = 0; 
+            // Read option value inside the loop to get the latest setting
+            var options = optionsMonitor.CurrentValue;
 
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("Starting audit log cleanup (Retention: {Minutes} minutes)...", options.RetentionMinutes);
+            }
+           
+            var unitOfWork = serviceProvider.GetRequiredService<IUnitOfWork>();
+            var auditLogRepository = serviceProvider.GetRequiredService<IAuditLogRepository>();
+            var deleted = 0;
+            var deletedInBatch = 0;
+            var cutoff = timeProvider.GetUtcNow().AddMinutes(-options.RetentionMinutes);
             await unitOfWork.BeginTransaction(cancellationToken);
             
             do
@@ -92,7 +140,11 @@ public class AuditLogCleanupService(
             } while (deletedInBatch > 0 && !cancellationToken.IsCancellationRequested);
 
             await backgroundServiceStatRepository.AddOrUpdate(
-                null,
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        cutoff
+                    }),
                 deleted,
                 BackgroundServiceStatType.AuditLogCleanUp,
                 cancellationToken);
@@ -105,7 +157,7 @@ public class AuditLogCleanupService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Audit log cleanup failed.");
+            logger.LogError(ex, "Audit log clean up failed!");
         }
     }
 }

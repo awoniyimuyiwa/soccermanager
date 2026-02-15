@@ -11,6 +11,10 @@ using Medallion.Threading;
 using Medallion.Threading.SqlServer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Retry;
+using Polly.Timeout;
 using Scalar.AspNetCore;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -109,6 +113,25 @@ builder.Services.AddSingleton<IDistributedLockProvider>((serviceProvider) =>
 
     return new SqlDistributedSynchronizationProvider(connectionString);
 });
+
+builder.Services.AddResiliencePipeline<string, IDistributedSynchronizationHandle?>(
+    Api.Constants.DistributedLockResiliencePolicy, (builder, context) =>
+    {
+        builder
+            // Per-attempt timeout: Ensures a stuck network call doesn't hang the background service
+            .AddTimeout(TimeSpan.FromSeconds(5))
+            .AddRetry(new RetryStrategyOptions<IDistributedSynchronizationHandle?>
+            {
+                ShouldHandle = new PredicateBuilder<IDistributedSynchronizationHandle?>()
+                    .Handle<TimeoutRejectedException>() // Matches the timeout above
+                    .Handle<Exception>()
+                    .HandleResult(result => result is null),
+                MaxRetryAttempts = 3,
+                Delay = TimeSpan.FromSeconds(10),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true // Prevent thundering herd
+            });
+    });
 
 builder.Services.AddSingleton<AuditLogCleanupTrigger>();
 builder.Services.AddSingleton<IAuditLogCleanupTrigger>(sp => sp.GetRequiredService<AuditLogCleanupTrigger>());
