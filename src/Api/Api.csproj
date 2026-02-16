@@ -14,7 +14,10 @@
     <PackageReference Include="DistributedLock.SqlServer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.Extensions.Resilience" />
+    <PackageReference Include="RedisRateLimiting" />
+    <PackageReference Include="RedisRateLimiting.AspNetCore" />
     <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
   </ItemGroup>

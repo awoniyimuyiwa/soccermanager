@@ -29,7 +29,7 @@ public class AuditLogCleanupService(
     ResiliencePipelineProvider<string> resiliencePipelineProvider,
     TimeProvider timeProvider) : BackgroundService
 {
-    readonly ResiliencePipeline<IDistributedSynchronizationHandle?> _resiliencePipeline = resiliencePipelineProvider.GetPipeline<IDistributedSynchronizationHandle?>(Constants.DistributedLockResiliencePolicy);
+    readonly ResiliencePipeline<IDistributedSynchronizationHandle?> _resiliencePipeline = resiliencePipelineProvider.GetPipeline<IDistributedSynchronizationHandle?>(Constants.DistributedLockResiliencePolicyName);
     
     protected override async Task ExecuteAsync(CancellationToken serviceCancellationToken)
     {

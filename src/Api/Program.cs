@@ -3,6 +3,7 @@ using Api.BackgroundServices;
 using Api.Controllers.V1;
 using Api.MiddleWares;
 using Api.Options;
+using Api.RateLimiting;
 using Application.Extensions;
 using Asp.Versioning;
 using Domain;
@@ -10,18 +11,27 @@ using EntityFrameworkCore.Extensions;
 using Medallion.Threading;
 using Medallion.Threading.SqlServer;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.DependencyInjection;
 using Polly;
-using Polly.CircuitBreaker;
 using Polly.Retry;
 using Polly.Timeout;
 using Scalar.AspNetCore;
+using StackExchange.Redis;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions<AuditLogOptions>()
+    .Bind(builder.Configuration.GetSection(AuditLogOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddOptions<RateLimitOptions>()
+    .Bind(builder.Configuration.GetSection(RateLimitOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -33,8 +43,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     // Add the IP of Load Balancer or Nginx server
     // options.KnownProxies.Add(IPAddress.Parse("10.0.0.100"));
 });
-
-builder.Services.Configure<AuditLogOptions>(builder.Configuration.GetSection("AuditLogOptions"));
 
 // Add services to the container.
 builder.Services.AddSingleton(TimeProvider.System);
@@ -75,7 +83,7 @@ builder.Services.AddApiVersioning(options =>
     options.DefaultApiVersion = new ApiVersion(1, 0);
     options.AssumeDefaultVersionWhenUnspecified = true;
     options.ReportApiVersions = true;
-    // Choose your versioning strategy (e.g., URL segment)
+    // Choose versioning strategy (e.g., URL segment)
     options.ApiVersionReader = new UrlSegmentApiVersionReader();
 })
 .AddMvc()
@@ -97,6 +105,9 @@ builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOpt
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 });
 
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("Connection string 'Redis' not found.")));
+
 builder.Services.AddEntityFrameworkServices();
 
 builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
@@ -105,17 +116,12 @@ builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
 
 builder.Services.AddApplicationServices();
 
-builder.Services.AddSingleton<IDistributedLockProvider>((serviceProvider) =>
-{
-    // Configure distributed lock rovider here, SQL server, Postgresql or Redis. Zookeeper requires ZooKeeperNetEx library
-    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-    var connectionString = configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-
-    return new SqlDistributedSynchronizationProvider(connectionString);
-});
+// Configure distributed lock provider here, SQL server, Postgresql or Redis. Zookeeper requires ZooKeeperNetEx library
+builder.Services.AddSingleton<IDistributedLockProvider>(
+    serviceProvider => new SqlDistributedSynchronizationProvider(builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.")));
 
 builder.Services.AddResiliencePipeline<string, IDistributedSynchronizationHandle?>(
-    Api.Constants.DistributedLockResiliencePolicy, (builder, context) =>
+    Api.Constants.DistributedLockResiliencePolicyName, (builder, context) =>
     {
         builder
             // Per-attempt timeout: Ensures a stuck network call doesn't hang the background service
@@ -139,6 +145,17 @@ builder.Services.AddSingleton<IAuditLogCleanupReader>(sp => sp.GetRequiredServic
 builder.Services.AddHostedService<AuditLogCleanupService>();
 
 builder.Services.AddAuthorization();
+
+builder.Services.AddSingleton<RateLimitService>();
+
+builder.Services.AddRateLimiter(rateLimiterOptions =>
+{
+    // Distributed Global Policy (Fixed Window). Ensures the ENTIRE cluster does not exceed global rate limit (e.g. 5000)
+    rateLimiterOptions.AddPolicy<string, GlobalRateLimitPolicy>(Api.Constants.GlobalRateLimitPolicyName);
+
+    // Distributed User Policy(Sliding Window)
+    rateLimiterOptions.AddPolicy<string, UserRateLimitPolicy>(Api.Constants.UserRateLimitPolicyName);
+});
 
 var app = builder.Build();
 
@@ -166,16 +183,39 @@ else
 
 app.UseHttpsRedirection();
 
+/* 
+ * CORS is currently disabled because the Frontend and API should ideally share the same domain.
+ * Under the Same-Origin Policy (SOP), the browser allows the UI to read all 
+ * 'X-RateLimit-*' and 'Retry-After' headers automatically.
+ * 
+ * If the Frontend is moved to a different domain (Cross-Origin), 
+ * CORS must be enabled and headers MUST be explicitly exposed:
+ * 
+ * policy.WithExposedHeaders(
+ *    "X-RateLimit-Limit", 
+ *    "X-RateLimit-Remaining",
+ *    "X-RateLimit-Reset",
+ *    "X-RateLimit-Scope",
+ *    "Retry-After");
+ */
+// app.UseCors(); // Not required for same-origin deployments
+app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
-app.UseMiddleware<AuditLogMiddleware>() // AuditMiddleware should be as early as possible to capture all necessary information.
+app.UseMiddleware<RateLimitHeadersMiddleware>() // Add rate limit headers to successful requests for UI frameworks
+    .UseMiddleware<AuditLogMiddleware>() // Audit log middleware should be as early as possible to capture all necessary information.
     .UseMiddleware<TransactionMiddleware>();
 
 app.MapGroup("v{version:apiVersion}/auth")
     .MapCustomIdentityApiV1<ApplicationUser>()
-    .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build());
-    //.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
+    .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build())
+    .RequireRateLimiting(Api.Constants.GlobalRateLimitPolicyName)
+    .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
+//.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
 
-app.MapControllers();
+app.MapControllers()
+    .RequireRateLimiting(Api.Constants.GlobalRateLimitPolicyName)
+    .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
 
 app.Run();
