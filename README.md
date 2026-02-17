@@ -4,7 +4,7 @@ A robust, scalable .NET 10 Web API for managing soccer teams and and player tran
 
 ### 🚀 Technologies:
 
-* **Runtime**: .NET 10 SDK
+* **Runtime:** .NET 10 SDK
 
 * **Architecture:** Onion Architecture / Clean Architecture
 
@@ -13,6 +13,8 @@ A robust, scalable .NET 10 Web API for managing soccer teams and and player tran
 * **Database:** SQL Server via Entity Framework Core
 
 * **Identity:** ASP.NET Core Identity API Endpoints (Cookie and Bearer Token auth)
+
+* **Rate Limiting:** Redis
 
 * **Documentation:** Swagger, Scalar, OpenAPI	
 
@@ -56,13 +58,37 @@ This project uses the native .NET Identity API Endpoints for a streamlined auth 
 1) **Clone the repository:**
 
 ```bash
-git clone <repository-url>>
+git clone <repository-url>
 cd your-project
 ```
 
-2) **Update Connection String and default admin credentials:**
+2) **Configuration:**
+Update the settings in `appsettings.json` or use [User Secrets](https://learn.microsoft.com) for local development:
 
-Open appsettings.json or secrets.json in the Api project and update the DefaultConnection to point to your SQL Server instance. Also update default admin credentials in secret.json.
+*   **SQL Server Database**: Update `DefaultConnection` to point to your SQL instance.
+*   **Redis**: Update the `Redis` connection string (required for distributed rate limiting).
+*   **Admin Identity**: Set the default credentials for the initial administrative account.
+
+**Example `appsettings.json` structure:**
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=YOUR_SERVER;Database=YOUR_DB;User Id=YOUR_USER;Password=YOUR_PASSWORD;TrustServerCertificate=True;",
+    "Redis": "localhost:6379"
+  },
+  "AdminUser": {
+    "Email": "admin@yourdomain.com",
+    "UserName": "admin",
+    "Password": "Secret@123"
+  },
+  "RateLimitOptions": {
+    "GlobalLimit": 500,
+    "UserLimit": 100,
+    "GuestLimit": 20
+  }
+}
+```
 
 3) **Run Migrations:**
 
