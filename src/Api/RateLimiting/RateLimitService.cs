@@ -1,15 +1,17 @@
 using Api.Options;
+using Api.Utils;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
+using System.Net;
 
 namespace Api.RateLimiting;
 
 public class RateLimitService(
-    IConnectionMultiplexer conectionMultiplexer,
-    IOptions<RateLimitOptions> options)
+    IConnectionMultiplexer connectionMultiplexer,
+    IOptions<RateLimitOptions> rateLimitOptions)
 {
-    readonly IDatabase _database = conectionMultiplexer.GetDatabase();
-    readonly RateLimitOptions _rateLimitOptions = options.Value;
+    readonly IDatabase _database = connectionMultiplexer.GetDatabase();
+    readonly RateLimitOptions _rateLimitOptions = rateLimitOptions.Value;
 
     public TimeSpan Minutes => TimeSpan.FromMinutes(_rateLimitOptions.Minutes);
 
@@ -77,5 +79,7 @@ public class RateLimitService(
     }
 
     public bool IsBypassed(string partitionKey) => 
-        _rateLimitOptions.WhiteList.Contains(partitionKey);
+        _rateLimitOptions.WhiteList.Contains(partitionKey)
+        || (IPAddress.TryParse(partitionKey, out var ipAddress)
+            && _rateLimitOptions.WhiteList.Any(w => w.Contains('/') && IPAddressHelper.IsInCidrRange(ipAddress, w)));
 }

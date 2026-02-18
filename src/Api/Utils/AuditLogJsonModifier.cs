@@ -1,7 +1,7 @@
 ﻿using Domain;
 using System.Text.Json.Serialization.Metadata;
 
-namespace Api;
+namespace Api.Utils;
 
 public static class AuditLogJsonModifier
 {
