@@ -102,7 +102,7 @@ Run the project and navigate to /swagger or /scalar to test the Api endpoints.
 
 ### 🧪 Testing
 
-Automated tests will be added. Run the following command to execute unit and integration tests across all layers.
+Run the following command to execute unit and integration tests across all layers.
 
 ```bash
 dotnet test

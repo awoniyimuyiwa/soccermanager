@@ -4,6 +4,7 @@ using Api.Controllers.V1;
 using Api.MiddleWares;
 using Api.Options;
 using Api.RateLimiting;
+using Api.Utils;
 using Application.Extensions;
 using Asp.Versioning;
 using Domain;
