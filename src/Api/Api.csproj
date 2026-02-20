@@ -12,7 +12,27 @@
   <ItemGroup>
     <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" />
     <PackageReference Include="DistributedLock.SqlServer" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+		<!--Ensures the design-time assembly is not deployed with the application-->
+		<PrivateAssets>all</PrivateAssets>
+		
+		<!--runtime & build: Allows the package to run during the build process
+		and when executing CLI commands like "dotnet ef migrations add". 
+		Compile is not included to prevent accidentally writing code that 
+		depends on the internal classes of the Design package-->
+	    
+		<!--contentfiles: Allows Logic required for the Entity Framework Core Tools 
+		to generate migrations and scaffold code to be included in the project-->
+		
+		<!--analyzers": Allows any code-quality tools included in the package to check code.-->
+		
+		<!--buildtransitive: Allows build-time assets to be passed down the dependency chain. 
+		This ensures that even in a complex multi-project architecture, the EF Core tools
+		can still find the necessary design-time logic needed to generate migrations-->
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Resilience" />
     <PackageReference Include="RedisRateLimiting" />
     <PackageReference Include="RedisRateLimiting.AspNetCore" />

@@ -17,7 +17,7 @@ namespace EntityFrameworkCore.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.1")
+                .HasAnnotation("ProductVersion", "10.0.3")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -197,7 +197,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AuditLogs");
+                    b.ToTable("AuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("Domain.AuditLogAction", b =>
@@ -231,7 +231,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("AuditLogId");
 
-                    b.ToTable("AuditLogActions");
+                    b.ToTable("AuditLogActions", (string)null);
                 });
 
             modelBuilder.Entity("Domain.BackgroundServiceStat", b =>
@@ -273,7 +273,7 @@ namespace EntityFrameworkCore.Migrations
                     b.HasIndex("Type")
                         .IsUnique();
 
-                    b.ToTable("BackgroundServiceStats");
+                    b.ToTable("BackgroundServiceStats", (string)null);
                 });
 
             modelBuilder.Entity("Domain.EntityChange", b =>
@@ -308,7 +308,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("AuditLogId");
 
-                    b.ToTable("EntityChanges");
+                    b.ToTable("EntityChanges", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Player", b =>
@@ -369,7 +369,7 @@ namespace EntityFrameworkCore.Migrations
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("TeamId"), new[] { "Value" });
 
-                    b.ToTable("Players", t =>
+                    b.ToTable("Players", null, t =>
                         {
                             t.HasTrigger("trg_UpdateTeamValueFromPlayers");
 
@@ -424,7 +424,7 @@ namespace EntityFrameworkCore.Migrations
                         .IsUnique()
                         .HasFilter("[SourceEntityId] IS NOT NULL");
 
-                    b.ToTable("PlayerValues", t =>
+                    b.ToTable("PlayerValues", null, t =>
                         {
                             t.HasTrigger("trg_UpdatePlayerValueFromValues");
                         });
@@ -486,7 +486,7 @@ namespace EntityFrameworkCore.Migrations
                         .IsUnique()
                         .HasFilter("[Name] IS NOT NULL");
 
-                    b.ToTable("Teams", t =>
+                    b.ToTable("Teams", null, t =>
                         {
                             t.HasCheckConstraint("CK_Team_Transfer_Budget", "[TransferBudget] >= 0");
 
@@ -540,7 +540,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("ToTeamId");
 
-                    b.ToTable("Transfers", t =>
+                    b.ToTable("Transfers", null, t =>
                         {
                             t.HasCheckConstraint("CK_Transfer_Asking_Price_Min", "[AskingPrice] >= 0");
                         });
@@ -592,7 +592,7 @@ namespace EntityFrameworkCore.Migrations
                         .IsUnique()
                         .HasFilter("[TransferId] IS NOT NULL");
 
-                    b.ToTable("TransferBudgetValues", t =>
+                    b.ToTable("TransferBudgetValues", null, t =>
                         {
                             t.HasTrigger("trg_UpdateTeamTransferBudgetFromValues");
                         });
