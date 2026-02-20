@@ -1,6 +1,7 @@
 using Api;
 using Api.BackgroundServices;
 using Api.Controllers.V1;
+using Api.Extensions;
 using Api.MiddleWares;
 using Api.Options;
 using Api.RateLimiting;
@@ -24,6 +25,9 @@ using System.Text.Json.Serialization.Metadata;
 
 var builder = WebApplication.CreateBuilder(args);
 
+using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+var logger = loggerFactory.CreateLogger("Startup");
+
 builder.Services.AddOptions<AuditLogOptions>()
     .Bind(builder.Configuration.GetSection(AuditLogOptions.SectionName))
     .ValidateDataAnnotations()
@@ -31,6 +35,11 @@ builder.Services.AddOptions<AuditLogOptions>()
 
 builder.Services.AddOptions<RateLimitOptions>()
     .Bind(builder.Configuration.GetSection(RateLimitOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddOptions<CustomDataProtectionOptions>()
+    .Bind(builder.Configuration.GetSection(CustomDataProtectionOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
@@ -106,8 +115,10 @@ builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOpt
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 });
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("Connection string 'Redis' not found.")));
+var connectionMultiplexer = ConnectionMultiplexer.Connect(
+    builder.Configuration.GetConnectionString("Redis") 
+    ?? throw new InvalidOperationException("Connection string 'Redis' not found."));
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp => connectionMultiplexer);
 
 builder.Services.AddEntityFrameworkServices();
 
@@ -157,6 +168,11 @@ builder.Services.AddRateLimiter(rateLimiterOptions =>
     // Distributed User Policy(Sliding Window)
     rateLimiterOptions.AddPolicy<string, UserRateLimitPolicy>(Api.Constants.UserRateLimitPolicyName);
 });
+
+builder.Services.AddCustomDataProtection(
+    builder.Configuration, 
+    connectionMultiplexer, 
+    logger);
 
 var app = builder.Build();
 
