@@ -1,11 +1,14 @@
-﻿using Application.Contracts;
+﻿using Api.Extensions;
+using Application.Contracts;
 using Domain;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
@@ -47,8 +50,36 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
         var routeGroup = endpoints.MapGroup("");
 
+        #region CustomCode
+        // Endpoint for SPAs to fetch the initial antiforgery token required for 
+        // state-changing requests (POST, PUT, PATCH, DELETE) and login attempts 
+        // when using Cookie Authentication.
+        routeGroup.MapGet("/antiforgery-token", async(
+            HttpContext httpContext,
+            [FromServices] IServiceProvider sp) =>
+        {
+            // Generates a new token bound to the current session (Anonymous or Authenticated)
+            // and appends the 'XSRF-TOKEN' cookie to the response.
+            httpContext.GetAndStoreAntiforgeryToken();
+
+            return TypedResults.NoContent();
+        }).WithSummary("Initializes the XSRF token for the client.");
+
+        // Endpoint for SPAs to terminate the user session. 
+        // This clears the Authentication Cookie and triggers the 'OnSigningOut' event 
+        // to remove the 'XSRF-TOKEN' cookie from the browser.
+        routeGroup.MapPost("/logout", async (SignInManager<ApplicationUser> signInManager) =>
+        {            
+            await signInManager.SignOutAsync();
+
+            return TypedResults.NoContent();
+        }).RequireAuthorization()
+        .WithSummary("Logs out the current user and clears security cookies.")
+        .WithDescription("Terminates the authenticated session and removes the client-side antiforgery token."); ;
+        #endregion
+
         // NOTE: We cannot inject UserManager<TUser> directly because the TUser generic parameter is currently unsupported by RDG.
-        // https://github.com/dotnet/aspnetcore/issues/47338
+        // https://github.com/dotnet/aspnetcore/issues/47338    
         routeGroup.MapPost("/register", async Task<Results<Ok, ValidationProblem>>
             ([FromBody] RegisterRequest registration, HttpContext context, [FromServices] IServiceProvider sp) =>
         {
@@ -85,58 +116,41 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             }
 
             #region CustomCode
-            var teamService = sp.GetRequiredService<ITeamService>();
-            var timeProvider = sp.GetRequiredService<TimeProvider>();
-            var today = timeProvider.GetUtcNow().Date;
-            var random = new Random();
-            var players = new List<CreatePlayerDto>();
-            players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto()
-            {
-                DateOfBirth = GetRandomDateOfBirth(today, random),
-                Type = PlayerType.Goalkeeper,
-                Value = Domain.Constants.InitialPlayerValue
-            }));
-
-            players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
-            {
-                DateOfBirth = GetRandomDateOfBirth(today, random),
-                Type = PlayerType.Defender,
-                Value = Domain.Constants.InitialPlayerValue
-            }));
-
-            players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
-            {
-                DateOfBirth = GetRandomDateOfBirth(today, random),
-                Type = PlayerType.Midfielder,
-                Value = Domain.Constants.InitialPlayerValue
-            }));
-
-            players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto()
-            {
-                DateOfBirth = GetRandomDateOfBirth(today, random),
-                Type = PlayerType.Attacker,
-                Value = Domain.Constants.InitialPlayerValue
-            }));
-
-            await teamService.Create(user, 
-                new CreateTeamDto
-                {
-                   TransferBudget = Domain.Constants.InitialTeamTransferBudget,
-                }, 
-                players);
+            await CreateDefaultTeam(user, sp);
             #endregion
 
             await SendConfirmationEmailAsync(user, userManager, context, email);
             return TypedResults.Ok();
         });
 
-        routeGroup.MapPost("/login", async Task<Results<Ok<AccessTokenResponse>, EmptyHttpResult, ProblemHttpResult>>
-            ([FromBody] LoginRequest login, [FromQuery] bool? useCookies, [FromQuery] bool? useSessionCookies, [FromServices] IServiceProvider sp) =>
+        routeGroup.MapPost("/login", async Task<Results<Ok<AccessTokenResponse>, EmptyHttpResult, ProblemHttpResult>>(
+            [FromBody] LoginRequest login, 
+            [FromQuery] bool? useCookies, 
+            [FromQuery] bool? useSessionCookies,
+            HttpContext httpContext,
+            [FromServices] IServiceProvider sp,
+            [FromServices] IAntiforgery antiforgery) =>
         {
-            var signInManager = sp.GetRequiredService<SignInManager<ApplicationUser>>();
-
             var useCookieScheme = useCookies == true || useSessionCookies == true;
             var isPersistent = useCookies == true && useSessionCookies != true;
+            
+            #region CustomCode
+            if (useCookieScheme)
+            {
+                // Defends against "Login CSRF" attacks where an attacker tricks a victim 
+                // into logging into the attacker's account to capture sensitive user data.
+                try
+                {
+                    await antiforgery.ValidateRequestAsync(httpContext);
+                }
+                catch (AntiforgeryValidationException)
+                {
+                    return TypedResults.Problem(Constants.AntiforgeryValidationErrorMesage, statusCode: StatusCodes.Status400BadRequest);
+                }
+            }
+            #endregion
+
+            var signInManager = sp.GetRequiredService<SignInManager<ApplicationUser>>();
             signInManager.AuthenticationScheme = useCookieScheme ? IdentityConstants.ApplicationScheme : IdentityConstants.BearerScheme;
 
             var result = await signInManager.PasswordSignInAsync(login.Email, login.Password, isPersistent, lockoutOnFailure: true);
@@ -160,7 +174,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             // The signInManager already produced the needed response in the form of a cookie or bearer token.
             return TypedResults.Empty;
-        });
+        }).DisableAntiforgery(); // <--- This prevents the group filter from running;
 
         routeGroup.MapPost("/refresh", async Task<Results<Ok<AccessTokenResponse>, UnauthorizedHttpResult, SignInHttpResult, ChallengeHttpResult>>
             ([FromBody] RefreshRequest refreshRequest, [FromServices] IServiceProvider sp) =>
@@ -517,6 +531,51 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
     }
 
     #region CustomCode
+    private static async Task CreateDefaultTeam<TUser>(
+        TUser user, 
+        IServiceProvider sp) where TUser : ApplicationUser, new()
+    {
+        var teamService = sp.GetRequiredService<ITeamService>();
+        var timeProvider = sp.GetRequiredService<TimeProvider>();
+        var today = timeProvider.GetUtcNow().Date;
+        var random = new Random();
+        var players = new List<CreatePlayerDto>();
+        players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto()
+        {
+            DateOfBirth = GetRandomDateOfBirth(today, random),
+            Type = PlayerType.Goalkeeper,
+            Value = Domain.Constants.InitialPlayerValue
+        }));
+
+        players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
+        {
+            DateOfBirth = GetRandomDateOfBirth(today, random),
+            Type = PlayerType.Defender,
+            Value = Domain.Constants.InitialPlayerValue
+        }));
+
+        players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
+        {
+            DateOfBirth = GetRandomDateOfBirth(today, random),
+            Type = PlayerType.Midfielder,
+            Value = Domain.Constants.InitialPlayerValue
+        }));
+
+        players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto()
+        {
+            DateOfBirth = GetRandomDateOfBirth(today, random),
+            Type = PlayerType.Attacker,
+            Value = Domain.Constants.InitialPlayerValue
+        }));
+
+        await teamService.Create(user,
+            new CreateTeamDto
+            {
+                TransferBudget = Domain.Constants.InitialTeamTransferBudget,
+            },
+            players);
+    }
+
     private static DateOnly GetRandomDateOfBirth(
         DateTime today,
         Random random)

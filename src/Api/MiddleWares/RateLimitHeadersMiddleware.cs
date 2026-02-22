@@ -1,5 +1,4 @@
-﻿using Api.RateLimiting;
-using Microsoft.AspNetCore.RateLimiting;
+﻿using Microsoft.AspNetCore.RateLimiting;
 
 namespace Api.MiddleWares;
 
@@ -11,7 +10,7 @@ public class RateLimitHeadersMiddleware(RequestDelegate next)
         HttpContext httpContext,
         RateLimitService rateLimitService)
     {
-        var (partitionKey, limit) = rateLimitService.GetPartitionDetails(httpContext);
+        var (partitionKey, limit) = rateLimitService.GetUserPolicyPartitionDetails(httpContext);
         if (rateLimitService.IsBypassed(partitionKey))
         {
             await _next(httpContext);
@@ -43,8 +42,8 @@ public class RateLimitHeadersMiddleware(RequestDelegate next)
 
             try
             {
-                var redisKey = rateLimitService.GetRedisKey(partitionKey);
-                var (remaining, reset) = await rateLimitService.GetMetadata(redisKey, limit);
+                var redisKey = rateLimitService.GetUserPolicyRedisKey(partitionKey);
+                var (remaining, reset) = await rateLimitService.GetUserPolicyMetadata(redisKey, limit);
 
                 var headers = httpContext.Response.Headers;
                 headers["X-RateLimit-Limit"] = limit.ToString();

@@ -2,9 +2,10 @@ using Api;
 using Api.BackgroundServices;
 using Api.Controllers.V1;
 using Api.Extensions;
+using Api.Filters;
 using Api.MiddleWares;
+using Api.OpenApi;
 using Api.Options;
-using Api.RateLimiting;
 using Api.Utils;
 using Application.Extensions;
 using Asp.Versioning;
@@ -13,15 +14,21 @@ using EntityFrameworkCore.Extensions;
 using Medallion.Threading;
 using Medallion.Threading.SqlServer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.OpenApi;
 using Polly;
 using Polly.Retry;
 using Polly.Timeout;
+using RedisRateLimiting;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,32 +68,38 @@ builder.Services.AddExceptionHandler<ExceptionHandler>();
 
 builder.Services.AddProblemDetails(); // Enable Problem Details support
 
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-    });
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<AntiforgeryAuthorizationFilter>();
+}).AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi(options => options.AddSchemaTransformer((schema, context, cancellationToken) =>
+builder.Services.AddOpenApi(options =>
 {
-    if (context.JsonTypeInfo.Type.IsEnum)
+    options.AddSchemaTransformer((schema, context, cancellationToken) =>
     {
-        var enumType = context.JsonTypeInfo.Type;
-        schema.Enum ??= [];
-        schema.Enum.Clear();
-
-        // Add enum names as JsonNodes (Standard for .NET 10 OpenAPI)
-        foreach (var name in Enum.GetNames(enumType))
+        if (context.JsonTypeInfo.Type.IsEnum)
         {
-            schema.Enum.Add(JsonValue.Create(name));
+            var enumType = context.JsonTypeInfo.Type;
+            schema.Enum ??= [];
+            schema.Enum.Clear();
+
+            // Add enum names as JsonNodes (Standard for .NET 10 OpenAPI)
+            foreach (var name in Enum.GetNames(enumType))
+            {
+                schema.Enum.Add(JsonValue.Create(name));
+            }
+
+            schema.Type = JsonSchemaType.String;
         }
-
-        schema.Type = Microsoft.OpenApi.JsonSchemaType.String;
-    }
-
-    return Task.CompletedTask;
-}));
+        return Task.CompletedTask;
+    });
+    
+    options.AddOperationTransformer<AntiforgeryHeaderOperationTransformer>();
+});
 
 builder.Services.AddApiVersioning(options =>
 {
@@ -103,8 +116,6 @@ builder.Services.AddApiVersioning(options =>
     options.GroupNameFormat = "'v'VVV";
     options.SubstituteApiVersionInUrl = true;
 });
-
-builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOptionsName, new JsonSerializerOptions
 {
@@ -159,20 +170,69 @@ builder.Services.AddHostedService<AuditLogCleanupService>();
 builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<RateLimitService>();
-
 builder.Services.AddRateLimiter(rateLimiterOptions =>
 {
-    // Distributed Global Policy (Fixed Window). Ensures the ENTIRE cluster does not exceed global rate limit (e.g. 5000)
-    rateLimiterOptions.AddPolicy<string, GlobalRateLimitPolicy>(Api.Constants.GlobalRateLimitPolicyName);
+    // Distributed global policy (Cluster-wide protection)
+    // Ensures the entire cluster does not exceed global rate limit (e.g. 5000)
+    rateLimiterOptions.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        var rateLimitService = context.RequestServices.GetRequiredService<RateLimitService>();
+        return rateLimitService.GetGlobalPolicyPartition(context);
+    });
 
-    // Distributed User Policy(Sliding Window)
-    rateLimiterOptions.AddPolicy<string, UserRateLimitPolicy>(Api.Constants.UserRateLimitPolicyName);
+    // Distributed user Policy (Per-user/IP protection)
+    rateLimiterOptions.AddPolicy(Api.Constants.UserRateLimitPolicyName, context =>
+    {
+        var rateLimitService = context.RequestServices.GetRequiredService<RateLimitService>();
+        return rateLimitService.GetUserPolicyPartition(context); 
+    });
+
+    // Unified rejection handling
+    rateLimiterOptions.OnRejected = (context, token) =>
+    {
+        var rateLimitService = context.HttpContext.RequestServices.GetRequiredService<RateLimitService>();
+        return rateLimitService.HandleOnRejected(context, token);
+    };
 });
 
 builder.Services.AddCustomDataProtection(
     builder.Configuration, 
     connectionMultiplexer, 
     logger);
+
+builder.Services.AddAntiforgery(options =>
+{
+    // The Antiforgery system will look for the request token in this header.
+    // SPAs must include this header for state-changing requests (POST, PUT, PATCH, DELETE)
+    // when using Cookie Authentication to prevent Cross-Site Request Forgery (CSRF).
+    // The value should be read from the 'XSRF-TOKEN' cookie (provided by the /auth/antiforgery-token endpoint)
+    // and attached to the request headers via JavaScript.
+    options.HeaderName = Api.Constants.AntiforgeryHeaderName;
+});
+
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    // Triggered during initial login, session refresh via the /refresh endpoint, 
+    // and automatic cookie issuance following Security Stamp validation.
+    options.Events.OnSigningIn = context =>
+    {
+        // Synchronize the Antiforgery token with the newly issued Identity 
+        // to ensure subsequent state-changing requests are valid.
+        context.HttpContext.GetAndStoreAntiforgeryToken();
+
+        return Task.CompletedTask;
+    };
+
+    // Fires when the user explicitly logs out or the session is invalidated.
+    options.Events.OnSigningOut = context =>
+    {
+        // Remove the JS-readable XSRF-TOKEN cookie.
+        // The framework handles the HttpOnly antiforgery cookie automatically.
+        context.Response.Cookies.Delete(Api.Constants.AntiforgeryCookieName);
+
+        return Task.CompletedTask;
+    };
+});
 
 var app = builder.Build();
 
@@ -225,14 +285,13 @@ app.UseMiddleware<RateLimitHeadersMiddleware>() // Add rate limit headers to suc
     .UseMiddleware<TransactionMiddleware>();
 
 app.MapGroup("v{version:apiVersion}/auth")
+    .AddEndpointFilter<AntiforgeryEndpointFilter>()
     .MapCustomIdentityApiV1<ApplicationUser>()
     .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build())
-    .RequireRateLimiting(Api.Constants.GlobalRateLimitPolicyName)
     .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
-//.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
+    //.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
 
 app.MapControllers()
-    .RequireRateLimiting(Api.Constants.GlobalRateLimitPolicyName)
     .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
 
 app.Run();
