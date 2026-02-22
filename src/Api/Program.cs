@@ -25,7 +25,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using System.Threading.RateLimiting;
+using System.Threading.RateLimiting;      
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -235,6 +235,8 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
+app.UseHttpsRedirection();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -248,6 +250,12 @@ if (app.Environment.IsDevelopment())
         options.SwaggerEndpoint("/openapi/v1.json", "v1");
 
     });
+
+    app.MapGet("/", (context) =>
+    {
+        context.Response.Redirect("/swagger");
+        return Task.CompletedTask;
+    });
 }
 else
 {
@@ -255,7 +263,20 @@ else
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// Security headers
+app.UseWhen(context =>
+    !context.Request.Path.StartsWithSegments("/scalar")
+    && !context.Request.Path.StartsWithSegments("/swagger"),
+    appBuilder =>
+    {
+        appBuilder.UseXContentTypeOptions();
+        appBuilder.UseXfo(options => options.Deny());
+        appBuilder.UseCsp(options => options
+            .DefaultSources(s => s.None())
+            .FrameAncestors(s => s.None())
+        );
+    }
+);
 
 /* 
  * CORS is currently disabled because the Frontend and API should ideally share the same domain.
