@@ -34,6 +34,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Resilience" />
+    <PackageReference Include="NWebsec.AspNetCore.Middleware" />
     <PackageReference Include="RedisRateLimiting" />
     <PackageReference Include="RedisRateLimiting.AspNetCore" />
     <PackageReference Include="Scalar.AspNetCore" />
