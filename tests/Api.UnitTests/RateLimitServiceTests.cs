@@ -1,5 +1,4 @@
 using Api.Options;
-using Api.RateLimiting;
 using Microsoft.Extensions.Options;
 using Moq;
 using StackExchange.Redis;
