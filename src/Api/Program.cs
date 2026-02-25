@@ -11,29 +11,45 @@ using Application.Extensions;
 using Asp.Versioning;
 using Domain;
 using EntityFrameworkCore.Extensions;
+using MaxMind.GeoIP2;
 using Medallion.Threading;
 using Medallion.Threading.SqlServer;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.BearerToken;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
 using Polly.Timeout;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
+using StackExchange.Redis.KeyspaceIsolation;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using System.Threading.RateLimiting;      
+using System.Text.RegularExpressions;
+using System.Threading.RateLimiting;
+using UAParser;
 
 var builder = WebApplication.CreateBuilder(args);
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
 var logger = loggerFactory.CreateLogger("Startup");
 
+// Changing the app name value will invalidate existing cache entries, rate limiting keys,
+// auth tickets and data protection keys.
+var appName = builder.Configuration.GetValue<string>("AppName") 
+    ?? throw new InvalidOperationException("Setting 'AppName' is missing from configuration.");
+
 builder.Services.AddOptions<AuditLogOptions>()
     .Bind(builder.Configuration.GetSection(AuditLogOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddOptions<CustomDataProtectionOptions>()
+    .Bind(builder.Configuration.GetSection(CustomDataProtectionOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
@@ -42,8 +58,8 @@ builder.Services.AddOptions<RateLimitOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddOptions<CustomDataProtectionOptions>()
-    .Bind(builder.Configuration.GetSection(CustomDataProtectionOptions.SectionName))
+builder.Services.AddOptions<SecurityOptions>()
+    .Bind(builder.Configuration.GetSection(SecurityOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
@@ -57,6 +73,10 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     // Add the IP of Load Balancer or Nginx server
     // options.KnownProxies.Add(IPAddress.Parse("10.0.0.100"));
 });
+
+// Post configure
+builder.Services.AddSingleton<IPostConfigureOptions<BearerTokenOptions>, ConfigureBearerTokenOptions>();
+builder.Services.AddSingleton<IPostConfigureOptions<CookieAuthenticationOptions>, ConfigureCookieAuthenticationOptions>();
 
 // Add services to the container.
 builder.Services.AddSingleton(TimeProvider.System);
@@ -76,24 +96,13 @@ builder.Services.AddControllers(options =>
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi(options =>
 {
-    options.AddSchemaTransformer((schema, context, cancellationToken) =>
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
     {
-        if (context.JsonTypeInfo.Type.IsEnum)
-        {
-            var enumType = context.JsonTypeInfo.Type;
-            schema.Enum ??= [];
-            schema.Enum.Clear();
-
-            // Add enum names as JsonNodes (Standard for .NET 10 OpenAPI)
-            foreach (var name in Enum.GetNames(enumType))
-            {
-                schema.Enum.Add(JsonValue.Create(name));
-            }
-
-            schema.Type = JsonSchemaType.String;
-        }
+        document.Info.Title = PascalCaseSplitterRegex().Replace(appName, "$1 $2");
         return Task.CompletedTask;
     });
+
+    options.AddSchemaTransformer<EnumSchemaTransformer>();
     
     options.AddOperationTransformer<AntiforgeryHeaderOperationTransformer>();
 });
@@ -123,10 +132,27 @@ builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOpt
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 });
 
+var cacheVersion = builder.Configuration.GetValue<string>("CacheOptions:Version") ?? "V1";
+var cachePrefix = $"{appName}:{cacheVersion}:";
+
 var connectionMultiplexer = ConnectionMultiplexer.Connect(
-    builder.Configuration.GetConnectionString("Redis") 
+    builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("Connection string 'Redis' not found."));
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp => connectionMultiplexer);
+var prefixedMultiplexer = connectionMultiplexer.WithKeyPrefix(cachePrefix);
+builder.Services.AddSingleton(prefixedMultiplexer);
+
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase());
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    // Leave this empty! The Proxy already adds cachePrefix to all keys,
+    // and adding it here will result in double prefixing 
+    options.InstanceName = string.Empty;
+    options.ConnectionMultiplexerFactory = () => Task.FromResult(prefixedMultiplexer);
+});
+
+builder.Services.AddDistributedMemoryCache();
 
 builder.Services.AddEntityFrameworkServices();
 
@@ -164,8 +190,6 @@ builder.Services.AddSingleton<IAuditLogCleanupTrigger>(sp => sp.GetRequiredServi
 builder.Services.AddSingleton<IAuditLogCleanupReader>(sp => sp.GetRequiredService<AuditLogCleanupTrigger>());
 builder.Services.AddHostedService<AuditLogCleanupService>();
 
-builder.Services.AddAuthorization();
-
 builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddRateLimiter(rateLimiterOptions =>
 {
@@ -181,7 +205,7 @@ builder.Services.AddRateLimiter(rateLimiterOptions =>
     rateLimiterOptions.AddPolicy(Api.Constants.UserRateLimitPolicyName, context =>
     {
         var rateLimitService = context.RequestServices.GetRequiredService<RateLimitService>();
-        return rateLimitService.GetUserPolicyPartition(context); 
+        return rateLimitService.GetUserPolicyPartition(context);
     });
 
     // Unified rejection handling
@@ -192,13 +216,54 @@ builder.Services.AddRateLimiter(rateLimiterOptions =>
     };
 });
 
-builder.Services.AddCustomDataProtection(
-    builder.Configuration, 
-    connectionMultiplexer, 
+// Add user agent parser
+builder.Services.AddSingleton(_ => Parser.GetDefault());
+
+// Add MaxMind DatabaseReader for geo location-based features
+builder.Services.AddSingleton<IGeoIP2DatabaseReader>(sp =>
+{
+    var path = Path.Combine(
+        builder.Environment.ContentRootPath,
+        "Data",
+        "GeoLite2-City.mmdb");
+
+    if (!File.Exists(path))
+    {
+        throw new FileNotFoundException($"GeoLite database not found at {path}. Ensure 'Copy to Output Directory' is configured.");
+    }
+
+    return new DatabaseReader(path);
+});
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<RedisTicketStore>();
+builder.Services.AddSingleton<ITicketStore>(sp => sp.GetRequiredService<RedisTicketStore>());
+builder.Services.AddSingleton<ISecureDataFormat<AuthenticationTicket>>(sp => sp.GetRequiredService<RedisTicketStore>());
+builder.Services.AddSingleton<IUserSessionManager>(sp => sp.GetRequiredService<RedisTicketStore>());
+
+var customDataProtectionOptions =       
+    builder.Configuration.GetRequiredSection(CustomDataProtectionOptions.SectionName)       
+    .Get<CustomDataProtectionOptions>();
+
+builder.Services.AddCustomDataProtection( 
+    appName,
+    customDataProtectionOptions!,
+    prefixedMultiplexer, 
     logger);
 
 builder.Services.AddAntiforgery(options =>
 {
+    // In modern browsers, the __Host- prefix enforces strict security: 
+    // Must be HTTPS (Secure) 
+    // Must have Path=/ 
+    // Prevents subdomains from overriding or 'tossing' this cookie (Domain Locking).
+    options.Cookie.Name = Api.Constants.AntiforgeryCookieName;
+
+    options.Cookie.HttpOnly = true;
+    options.Cookie.Path = "/";
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+
     // The Antiforgery system will look for the request token in this header.
     // SPAs must include this header for state-changing requests (POST, PUT, PATCH, DELETE)
     // when using Cookie Authentication to prevent Cross-Site Request Forgery (CSRF).
@@ -207,29 +272,7 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = Api.Constants.AntiforgeryHeaderName;
 });
 
-builder.Services.ConfigureApplicationCookie(options =>
-{
-    // Triggered during initial login, session refresh via the /refresh endpoint, 
-    // and automatic cookie issuance following Security Stamp validation.
-    options.Events.OnSigningIn = context =>
-    {
-        // Synchronize the Antiforgery token with the newly issued Identity 
-        // to ensure subsequent state-changing requests are valid.
-        context.HttpContext.GetAndStoreAntiforgeryToken();
-
-        return Task.CompletedTask;
-    };
-
-    // Fires when the user explicitly logs out or the session is invalidated.
-    options.Events.OnSigningOut = context =>
-    {
-        // Remove the JS-readable XSRF-TOKEN cookie.
-        // The framework handles the HttpOnly antiforgery cookie automatically.
-        context.Response.Cookies.Delete(Api.Constants.AntiforgeryCookieName);
-
-        return Task.CompletedTask;
-    };
-});
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -264,9 +307,9 @@ else
 }
 
 // Security headers
-app.UseWhen(context =>
-    !context.Request.Path.StartsWithSegments("/scalar")
-    && !context.Request.Path.StartsWithSegments("/swagger"),
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments("/scalar")
+               && !context.Request.Path.StartsWithSegments("/swagger"),
     appBuilder =>
     {
         appBuilder.UseXContentTypeOptions();
@@ -303,6 +346,7 @@ app.UseMiddleware<RateLimitHeadersMiddleware>() // Add rate limit headers to suc
     .UseMiddleware<TransactionMiddleware>();
 
 app.MapGroup("v{version:apiVersion}/auth")
+    .WithTags("Auth")
     .AddEndpointFilter<AntiforgeryEndpointFilter>()
     .MapCustomIdentityApiV1<ApplicationUser>()
     .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build())
@@ -313,3 +357,9 @@ app.MapControllers()
     .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
 
 app.Run();
+
+partial class Program
+{
+    [GeneratedRegex("([a-z])([A-Z])", RegexOptions.Compiled)]
+    private static partial Regex PascalCaseSplitterRegex();
+}

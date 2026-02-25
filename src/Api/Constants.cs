@@ -4,11 +4,15 @@ public class Constants
 {
     public const string AlreadyExistsErrorMessage = "Already exists";
 
-    public const string AntiforgeryCookieName = "XSRF-TOKEN";
+    public const string AntiforgeryCookieName = "__Host-Antiforgery";
+
+    public const string AntiforgeryJSReadableCookieName = "XSRF-TOKEN";
 
     public const string AntiforgeryHeaderName = "X-XSRF-TOKEN";
 
     public const string AntiforgeryValidationErrorMesage =  "Antiforgery token validation failed";
+
+    public const string ConcurrentLoginErrorMessage = "Concurrent logins are prohibited. Please log out from other devices before logging in again.";
 
     public const string CountryCodeErrorMessage = "Must be a valid ISO 3166-1 alpha-2 country code (e.g., US, GB)";
 

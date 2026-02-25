@@ -49,15 +49,12 @@ public static class ServiceCollectionExtensions
     /// </remarks>
     public static IServiceCollection AddCustomDataProtection(
         this IServiceCollection services,
-        IConfiguration configuration,
+        string appName,
+        CustomDataProtectionOptions customDataProtectionOptions,
         IConnectionMultiplexer connectionMultiplexer,
         ILogger logger,
         TimeProvider? timeProvider = null)
     {
-        var customDataProtectionOptions = 
-            configuration.GetRequiredSection(CustomDataProtectionOptions.SectionName)           
-            .Get<CustomDataProtectionOptions>();
-
         if (!Enum.TryParse<X509KeyStorageFlags>(
             customDataProtectionOptions!.StorageFlag,
             ignoreCase: true,
@@ -103,10 +100,10 @@ public static class ServiceCollectionExtensions
         }
 
         var primaryCert = certs.First();
-
+       
         services.AddDataProtection()
-            .SetApplicationName(customDataProtectionOptions.ApplicationName)
-            .PersistKeysToStackExchangeRedis(connectionMultiplexer, "DataProtection-Keys")
+            .SetApplicationName(appName)
+            .PersistKeysToStackExchangeRedis(connectionMultiplexer, "DataProtection:Keys")
             // The first cert in the list is the only one used for new encryption
             .ProtectKeysWithCertificate(primaryCert)
             // Allow decryption using any of the certificates in the list (Primary + Backups)
@@ -170,4 +167,3 @@ public static class ServiceCollectionExtensions
         }
     }
 }
-    

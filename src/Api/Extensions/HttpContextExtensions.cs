@@ -17,13 +17,14 @@ public static class HttpContextExtensions
         var tokens = antiforgery.GetAndStoreTokens(httpContext);
 
         httpContext.Response.Cookies.Append(
-            Constants.AntiforgeryCookieName,
+            Constants.AntiforgeryJSReadableCookieName,
             tokens.RequestToken!,
             new CookieOptions
             {
                 HttpOnly = false,
-                Secure = true,
-                SameSite = SameSiteMode.Lax
+                Path = "/",
+                SameSite = SameSiteMode.Lax,
+                Secure = true
             });
     }
 
