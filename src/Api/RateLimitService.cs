@@ -17,13 +17,16 @@ namespace Api;
 /// Manages partition definitions for both global and user-based policies,
 /// and handles unified 429 (Too Many Requests) responses across the application.
 /// </summary>
-/// <param name="connectionMultiplexer">The Redis connection used for distributed counters.</param>
-/// <param name="rateLimitOptions">The configuration options defining limits and time windows.</param>
+/// <param name="connectionMultiplexer">Redis connection multiplexer used for distributed counters.</param>
+/// <param name="database">Redis database used for distributed counters.</param>
+/// <param name="rateLimitOptions">Configuration options defining limits and time windows.</param>
 public class RateLimitService(
     IConnectionMultiplexer connectionMultiplexer,
+    IDatabase database,
     IOptions<RateLimitOptions> rateLimitOptions)
 {
-    readonly IDatabase _database = connectionMultiplexer.GetDatabase();
+    readonly IConnectionMultiplexer _connectionMultiplexer = connectionMultiplexer;
+    readonly IDatabase _database = database;
     readonly RateLimitOptions _rateLimitOptions = rateLimitOptions.Value;
 
     public TimeSpan Minutes => TimeSpan.FromMinutes(_rateLimitOptions.Minutes);
@@ -62,7 +65,7 @@ public class RateLimitService(
             new RedisFixedWindowRateLimiter<string>(Constants.GlobalRateLimitPolicyName,
             new RedisFixedWindowRateLimiterOptions
             {
-                ConnectionMultiplexerFactory = () => connectionMultiplexer,
+                ConnectionMultiplexerFactory = () => _connectionMultiplexer,
                 PermitLimit = GlobalLimit,
                 Window = Minutes
             }));
@@ -80,7 +83,7 @@ public class RateLimitService(
         return RateLimitPartition.Get(partitionKey, _ =>
             new RedisSlidingWindowRateLimiter<string>(partitionKey, new RedisSlidingWindowRateLimiterOptions
             {
-                ConnectionMultiplexerFactory = () => connectionMultiplexer,
+                ConnectionMultiplexerFactory = () => _connectionMultiplexer,
                 Window = Minutes,
                 PermitLimit = limit
                 // RedisRateLimiting Library: handles the "sliding" logic via Redis Lua scripts (often using ZSETs or timestamped keys), which typically calculates the window boundary dynamically without needing explicit segment counts from the user.
@@ -103,7 +106,7 @@ public class RateLimitService(
 
     /// <summary>
     /// The library adds "rl:sw:" as a prefix automatically
-    /// key in Redis is actually rl:sw:{<paramref name="partitionKey"/>}
+    /// key in Redis is actually "SoccerManager:V1:rl:sw:{<paramref name="partitionKey"/>}
     /// </summary>
     /// <param name="partitionKey"></param>
     /// <returns>Redis key</returns>
@@ -157,6 +160,7 @@ public class RateLimitService(
             && leaseType.DeclaringType.GetGenericTypeDefinition() == typeof(RedisSlidingWindowRateLimiter<>);
 
         httpContext.Response.Headers["X-RateLimit-Scope"] = isUserPolicy ? "User" : "Global";
+        httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
 
         var problemDetails = new ProblemDetails
         {

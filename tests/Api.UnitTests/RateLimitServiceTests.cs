@@ -1,4 +1,5 @@
 using Api.Options;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Moq;
 using StackExchange.Redis;
@@ -99,14 +100,22 @@ public class RateLimitServiceTests
 
     static RateLimitService CreateServiceWithOptions(RateLimitOptions options)
     {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ApplicationName"] = "SoccerManager",
+                ["CacheOptions:Version"] = "V1"
+            }).Build();
+
         var optionsMock = new Mock<IOptions<RateLimitOptions>>();
         optionsMock.Setup(o => o.Value).Returns(options);
 
-        var connectionMock = new Mock<IConnectionMultiplexer>();
-        connectionMock.Setup(c => c.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(Mock.Of<IDatabase>());    
+        var redisDatabaseMock = new Mock<IDatabase>();
+        var connectionMock = new Mock<IConnectionMultiplexer>();    
 
         return new RateLimitService(
-            connectionMock.Object,
+            connectionMock.Object,            
+            redisDatabaseMock.Object,
             optionsMock.Object);
     }
 }

@@ -6,9 +6,6 @@ public class CustomDataProtectionOptions
 {
     public const string SectionName = "DataProtectionOptions";
 
-    [Required]
-    public string ApplicationName { get; set; } = "SoccerManager";
-
     public string StorageFlag { get; set; } = "EphemeralKeySet";
 
     [Required(ErrorMessage = "At least one certificate is required.")]

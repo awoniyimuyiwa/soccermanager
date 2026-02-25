@@ -26,7 +26,7 @@ public class AntiforgeryAuthorizationFilterTests
     [InlineData("POST")]
     [InlineData("PUT")]
     [InlineData("TRACE")]
-    public async Task OnAuthorizationAsync_WhenValidationIsDisabled_SkipsValidation(string method)
+    public async Task OnAuthorizationAsync_ValidationIsDisabled_SkipsValidation(string method)
     {
         await AssertSkipsValidation(
             method,
@@ -42,7 +42,7 @@ public class AntiforgeryAuthorizationFilterTests
     [InlineData("OPTIONS", false)]
     [InlineData("TRACE", true)]
     [InlineData("TRACE", false)]
-    public async Task OnAuthorizationAsync_WhenMethodIsSafe_SkipsValidation(
+    public async Task OnAuthorizationAsync_MethodIsSafe_SkipsValidation(
         string method,
         bool requiresValidation)
     {
@@ -56,7 +56,7 @@ public class AntiforgeryAuthorizationFilterTests
     [InlineData("PATCH")]
     [InlineData("POST")]
     [InlineData("PUT")]
-    public async Task OnAuthorizationAsync_WhenBearerAuthenticatonIsUsed_SkipsValidation(
+    public async Task OnAuthorizationAsync_BearerAuthenticatonIsUsed_SkipsValidation(
         string method)
     {
         await AssertSkipsValidation(
@@ -70,7 +70,7 @@ public class AntiforgeryAuthorizationFilterTests
     [InlineData("PATCH")]
     [InlineData("POST")]
     [InlineData("PUT")]
-    public async Task OnAuthorizationAsync_WhenBearerAuthenticationIsNotUsedAndValidationIsSuccessful_SetsNullResult(string method)
+    public async Task OnAuthorizationAsync_BearerAuthenticationIsNotUsedAndValidationIsSuccessful_SetsNullResult(string method)
     {
         // Arrange
         var (authorizationFilterContext,
@@ -95,7 +95,7 @@ public class AntiforgeryAuthorizationFilterTests
     [InlineData("PATCH")]
     [InlineData("POST")]
     [InlineData("PUT")]
-    public async Task OnAuthorizationAsync_WhenBearerAuthenticationIsNotUsedAndValidationFails_SetsBadRequestResult(string method)
+    public async Task OnAuthorizationAsync_BearerAuthenticationIsNotUsedAndValidationFails_SetsBadRequestResult(string method)
     {
         // Arrange
         var (authorizationFilterContext,
