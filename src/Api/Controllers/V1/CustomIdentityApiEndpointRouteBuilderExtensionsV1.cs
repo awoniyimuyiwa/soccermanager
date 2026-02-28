@@ -1,9 +1,11 @@
 ﻿using Api.Extensions;
 using Api.Models.V1;
+using Api.Options;
 using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.BearerToken;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Identity;
@@ -212,7 +214,8 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         #endregion
 
         routeGroup.MapPost("/refresh", async Task<Results<Ok<AccessTokenResponse>, UnauthorizedHttpResult, SignInHttpResult, ChallengeHttpResult>>
-            ([FromBody] RefreshRequest refreshRequest, [FromServices] IServiceProvider sp) =>
+            ([FromBody] RefreshRequest refreshRequest,
+            [FromServices] IServiceProvider sp) =>
         {
             var signInManager = sp.GetRequiredService<SignInManager<ApplicationUser>>();
             var refreshTokenProtector = bearerTokenOptions.Get(IdentityConstants.BearerScheme).RefreshTokenProtector;
@@ -227,9 +230,18 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
                 return TypedResults.Challenge();
             }
 
+            #region CustomCode
+            var securityOptions = sp.GetRequiredService<IOptions<SecurityOptions>>().Value;
+            if (securityOptions.ShouldRotateRefreshTokens)
+            {
+                var ticketStore = sp.GetRequiredService<ITicketStore>();
+                await ticketStore.RemoveAsync(refreshRequest.RefreshToken);
+            }
+            #endregion
+
             var newPrincipal = await signInManager.CreateUserPrincipalAsync(user);
             return TypedResults.SignIn(newPrincipal, authenticationScheme: IdentityConstants.BearerScheme);
-        });
+        }).DisableAntiforgery(); // <--- This prevents the group filter from running;;
 
         routeGroup.MapGet("/confirm-email", async Task<Results<ContentHttpResult, UnauthorizedHttpResult>>
             ([FromQuery] string userId, [FromQuery] string code, [FromQuery] string? changedEmail, [FromServices] IServiceProvider sp) =>

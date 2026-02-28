@@ -4,6 +4,7 @@ using Domain;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using System.Security.Claims;
@@ -565,6 +566,12 @@ public class RedisTicketStore(
                 sessionId,
                 authenticationTicket,
                 now);
+
+        if (!string.IsNullOrWhiteSpace(dto!.CorrelationId))
+        {
+            // Flow the CorrelationId
+            _httpContextAccessor.HttpContext!.Items[SessionCorrelationKey] = dto.CorrelationId;
+        }
 
         dto!.LastSeen = now;
         // Other updates here if needed

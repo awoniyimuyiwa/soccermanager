@@ -22,6 +22,11 @@ public class SecurityOptions
     [Required]
     [EnumDataType(typeof(LoginConcurrencyMode))]
     public LoginConcurrencyMode LoginConcurrencyMode { get; set; }
+
+    /// <summary>
+    /// When true, the system will issue a new refresh token upon each use of an existing refresh token, and invalidate the old one.
+    /// </summary>
+    public bool ShouldRotateRefreshTokens { get; set; } = true;
 }
 
 public enum LoginConcurrencyMode
