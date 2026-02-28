@@ -55,21 +55,20 @@ public class UsersController(
     /// Revokes a specific session for a user.
     /// </summary>
     /// <param name="userId">The unique id of the user.</param>
-    /// <param name="sessionId">The unique id of the session.</param>
+    /// <param name="sessionIdHash">The unique hashed id of the session.</param>
     /// <response code="200">When there are no errors</response>
-    [HttpDelete("{userId:long}/sessions/{sessionId}")]
+    [HttpDelete("{userId:long}/sessions/{sessionIdHash}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> RevokeSession(
         long userId,
-        string sessionId)
+        string sessionIdHash)
     {
         await _sessionManager.Remove(
             userId, 
-            sessionId);
-
+            sessionIdHash);     
         return Ok(new 
         { 
-            message = $"Session {sessionId} for user {userId} has been revoked." 
+            message = $"Session {sessionIdHash} for user {userId} has been revoked." 
         });
     }
 

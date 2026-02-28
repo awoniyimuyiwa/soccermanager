@@ -1,3 +1,4 @@
+using Api.Extensions;
 using Api.Options;
 using Domain;
 using MaxMind.GeoIP2;
@@ -8,10 +9,13 @@ using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
 using StackExchange.Redis;
+using System;
+using System.Net.Http;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using UAParser;
+using static Microsoft.ApplicationInsights.MetricDimensionNames.TelemetryContext;
 
 namespace Api.UnitTests;
 
@@ -34,10 +38,10 @@ public class RedisTicketStoreTests
         var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.AllowMultiple);
 
         var (redisTicketStore,
-           redisDatabaseMock,
-           timeProvider) = CreateTicketStore(
-               securityOptions,
-               new Mock<IHttpContextAccessor>().Object);
+            redisDatabaseMock,
+            timeProvider) = CreateTicketStore(
+                securityOptions,
+                new Mock<IHttpContextAccessor>().Object);
        
         // Act
         var sessionId = await redisTicketStore.StoreAsync(authTicket);
@@ -62,7 +66,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionId = sessionId
+                SessionIdHash = sessionId.Hash()
             });
     }
 
@@ -76,8 +80,8 @@ public class RedisTicketStoreTests
         var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.KickOut);
 
         var (redisTicketStore,
-          redisDatabaseMock,
-          timeProvider) = CreateTicketStore(
+            redisDatabaseMock,
+            timeProvider) = CreateTicketStore(
               securityOptions,
               new Mock<IHttpContextAccessor>().Object);
 
@@ -109,7 +113,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionId = sessionId
+                SessionIdHash = sessionId.Hash()
             });
     }
 
@@ -167,10 +171,10 @@ public class RedisTicketStoreTests
             .Returns(httpContext);
 
         var (redisTicketStore,
-           redisDatabaseMock,
-           timeProvider) = CreateTicketStore(
-               securityOptions,
-               httpContextAccessorMock.Object);
+            redisDatabaseMock,
+            timeProvider) = CreateTicketStore(
+                securityOptions,
+                httpContextAccessorMock.Object);
 
         // Act
         var sessionId = redisTicketStore.Protect(authTicket);
@@ -196,7 +200,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionId = sessionId
+                SessionIdHash = sessionId.Hash()
             });
     }
 
@@ -265,8 +269,8 @@ public class RedisTicketStoreTests
         var (redisTicketStore,
             redisDatabaseMock,
             timeProvider) = CreateTicketStore(
-               securityOptions,
-               httpContextAccessorMock.Object);
+                securityOptions,
+                httpContextAccessorMock.Object);
 
         SetupExistingSessions(
             redisDatabaseMock, 
@@ -292,7 +296,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionId = sessionId
+                SessionIdHash = sessionId.Hash()
             });
     }
 
@@ -317,8 +321,8 @@ public class RedisTicketStoreTests
         var (redisTicketStore,
             redisDatabaseMock,
             timeProvider) = CreateTicketStore(
-               securityOptions,
-               httpContextAccessorMock.Object);
+                securityOptions,
+                httpContextAccessorMock.Object);
 
         SetupExistingSessions(
             redisDatabaseMock,
@@ -328,7 +332,7 @@ public class RedisTicketStoreTests
         var sessionId = redisTicketStore.Protect(authTicket);
 
         // Assert
-        // Deleting only unrelated sessions
+        // Deletes only unrelated sessions
         redisDatabaseMock.Verify(
           db => db.ScriptEvaluateAsync(
               It.Is<string>(s => s.Contains(RedisTicketStore.RemoveUnrelatedAndSyncScriptName)),
@@ -353,7 +357,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionId = sessionId
+                SessionIdHash = sessionId.Hash()
             });
     }
 
@@ -384,7 +388,7 @@ public class RedisTicketStoreTests
     }
 
     [Fact]
-    public async Task RetrieveAsync_SessionExists_ReturnsSession()
+    public async Task RetrieveAsync_SessionExists_UpdatesMetadataAndReturnsSession()
     {
         // Arrange
         var random = new Random();
@@ -393,14 +397,30 @@ public class RedisTicketStoreTests
 
         var (redisTicketStore,
             redisDatabaseMock,
-            _) = CreateTicketStore();
+            timeProvider) = CreateTicketStore();
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
+        var sessionIdHash = sessionId.Hash();
         redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId}",
+            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
+
+        // Simulate existing user session metadata
+        var userSessionDto = new UserSessionDto()
+        {
+            AuthScheme = Guid.NewGuid().ToString(),
+            DeviceInfo = Guid.NewGuid().ToString(),
+            Location = Guid.NewGuid().ToString(),
+            LoginTime = timeProvider.GetUtcNow().AddDays(-1 * random.Next(short.MaxValue)),
+            SessionIdHash = sessionIdHash
+        };
+        redisDatabaseMock.Setup(db => db.HashGetAsync(
+            $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
+            sessionIdHash,
+            It.IsAny<CommandFlags>()))
+            .ReturnsAsync(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
 
         // Act
         var actual = await redisTicketStore.RetrieveAsync(sessionId);
@@ -410,6 +430,14 @@ public class RedisTicketStoreTests
         Assert.Equal(
             userId.ToString(), 
             authTicket.Principal.FindFirstValue(ClaimTypes.NameIdentifier));
+
+        AssertSessionStored(
+            redisDatabaseMock,
+            authTicket,
+            userSessionDto with 
+            { 
+                LastSeen = timeProvider.GetUtcNow() 
+            });
     }
 
     [Fact]
@@ -437,16 +465,32 @@ public class RedisTicketStoreTests
 
         var (redisTicketStore,
             redisDatabaseMock,
-            _) = CreateTicketStore(
+            timeProvider) = CreateTicketStore(
                 null,
                 new Mock<IHttpContextAccessor>().Object);
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
+        var sessionIdHash = sessionId.Hash();
         redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId}",
+            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
+
+        // Simulate existing user session metadata
+        var userSessionDto = new UserSessionDto()
+        {
+            AuthScheme = Guid.NewGuid().ToString(),
+            DeviceInfo = Guid.NewGuid().ToString(),
+            Location = Guid.NewGuid().ToString(),
+            LoginTime = timeProvider.GetUtcNow().AddDays(-1 * random.Next(short.MaxValue)),
+            SessionIdHash = sessionIdHash
+        };
+        redisDatabaseMock.Setup(db => db.HashGetAsync(
+            $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
+            sessionIdHash,
+            It.IsAny<CommandFlags>()))
+            .ReturnsAsync(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
 
         // Act
         var actual = redisTicketStore.Unprotect(sessionId);
@@ -456,6 +500,14 @@ public class RedisTicketStoreTests
         Assert.Equal(
             userId.ToString(),
             authTicket.Principal.FindFirstValue(ClaimTypes.NameIdentifier));
+
+        AssertSessionStored(
+            redisDatabaseMock,
+            authTicket,
+            userSessionDto with
+            {
+                LastSeen = timeProvider.GetUtcNow()
+            });
     }
 
     [Fact]
@@ -473,23 +525,25 @@ public class RedisTicketStoreTests
                 new Mock<IHttpContextAccessor>().Object);
 
         // Simulate existing session
+        var sessionId = $"{userId}:{Guid.NewGuid()}";
+        var sessionIdHash = sessionId.Hash();
         var userSessionDto = new UserSessionDto()
         {
             AuthScheme = Guid.NewGuid().ToString(),
             DeviceInfo = Guid.NewGuid().ToString(),
             Location = Guid.NewGuid().ToString(),
             LoginTime = timeProvider.GetUtcNow().AddDays(-1 *random.Next(short.MaxValue)),
-            SessionId = $"{userId}:{Guid.NewGuid()}"
+            SessionIdHash = sessionIdHash
         };
         redisDatabaseMock.Setup(db => db.HashGetAsync(
             $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
-            userSessionDto.SessionId,
+            sessionIdHash,
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
 
         // Act
         await redisTicketStore.RenewAsync(
-            userSessionDto.SessionId, 
+            sessionId, 
             authTicket);
 
         // Assert
@@ -534,7 +588,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionId = sessionId
+                SessionIdHash = sessionId.Hash()
             });
     }
 
@@ -551,8 +605,9 @@ public class RedisTicketStoreTests
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
+        var sessionIdHash = sessionId.Hash();
         redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId}",
+            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
 
@@ -564,11 +619,11 @@ public class RedisTicketStoreTests
             redisDatabaseMock,
             timeProvider,
             userId,
-            sessionId);
+            sessionIdHash);
     }
 
     [Fact]
-    public async Task RemoveAsync_SessionDoesntExist_IsIdempotent()
+    public async Task RemoveAsync_SessionDoesNotExist_IsIdempotent()
     {
         // Arrange
         var (redisTicketStore,
@@ -576,8 +631,8 @@ public class RedisTicketStoreTests
             _) = CreateTicketStore();
 
         // Simulate non existing session
-        var sessionId = Guid.NewGuid().ToString();
-       
+        var sessionId = $"{new Random().Next()}:{Guid.NewGuid()}";
+
         // Act
         await redisTicketStore.RemoveAsync(sessionId);
 
@@ -601,23 +656,23 @@ public class RedisTicketStoreTests
             timeProvider) = CreateTicketStore();
 
         // Simulate existing session
-        var sessionId = $"{userId}:{Guid.NewGuid()}";
+        var sessionIdHash = $"{userId}:{Guid.NewGuid()}".Hash();  
         redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId}",
+            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
 
         // Act
         await redisTicketStore.Remove(
             userId,
-            sessionId);
+            sessionIdHash);
 
         // Assert
         AssertSessionRemoved(
             redisDatabaseMock,
             timeProvider,
             userId, 
-            sessionId);
+            sessionIdHash);
     }
 
     [Fact]
@@ -635,7 +690,7 @@ public class RedisTicketStoreTests
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
         redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId}",
+            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId.Hash()}",
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
 
@@ -667,7 +722,7 @@ public class RedisTicketStoreTests
             _) = CreateTicketStore();
 
         // Simulate non existing session
-        var sessionId = Guid.NewGuid().ToString();
+        var sessionId = $"{userId}:{Guid.NewGuid()}";
 
         // Act
         await redisTicketStore.Remove(
@@ -769,7 +824,7 @@ public class RedisTicketStoreTests
         var existingSessions = Enumerable.Range(0, existingSessionCount)
             .Select(i => (RedisValue)JsonSerializer.Serialize(new UserSessionDto
             {
-                SessionId = $"user123:session123",
+                SessionIdHash = $"user123:session123",
                 CorrelationId = correlationId
             },
             _jsonOptions))
@@ -813,11 +868,11 @@ public class RedisTicketStoreTests
            db => db.ScriptEvaluateAsync(
                It.Is<string>(s => s.Contains(RedisTicketStore.StoreAndSyncScriptName)),
                It.Is<RedisKey[]>(
-                   k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{userSessionDto.SessionId}"
+                   k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{userSessionDto.SessionIdHash}"
                         && k[1] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
                         && k[2] == $"{{User:{userId}}}:{RedisTicketStore.UserExpiryPrefix}"),
                It.Is<RedisValue[]>(
-                   v => v[0] == userSessionDto.SessionId
+                   v => v[0] == userSessionDto.SessionIdHash
                         && v[1] == authenticationTicket.Properties.ExpiresUtc!.Value.ToUnixTimeSeconds()
                         && v[2] == userSessionDto.LastSeen.ToUnixTimeSeconds()
                         && AssertEqual(v[3].ToString(), userSessionDto)
@@ -830,7 +885,7 @@ public class RedisTicketStoreTests
         Mock<IDatabase> redisDatabaseMock,
         TimeProvider timeProvider,
         long userId,
-        string sessionId)
+        string sessionIdHash)
     {
         redisDatabaseMock.Verify(
             db => db.ScriptEvaluateAsync(
@@ -840,7 +895,7 @@ public class RedisTicketStoreTests
                          && k[1] == $"{{User:{userId}}}:{RedisTicketStore.UserExpiryPrefix}"
                          && k[2] == $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}"),
                 It.Is<RedisValue[]>(
-                    v => v[0] == sessionId
+                    v => v[0] == sessionIdHash
                          && v[1] == timeProvider.GetUtcNow().ToUnixTimeSeconds()),
                 It.IsAny<CommandFlags>()),
                 Times.Once);
@@ -860,6 +915,6 @@ public class RedisTicketStoreTests
             && actual.LastSeen == expected.LastSeen
             && actual.Location == expected.Location
             && actual.LoginTime == expected.LoginTime
-            && actual.SessionId == expected.SessionId;
+            && actual.SessionIdHash == expected.SessionIdHash;
     }
 }
