@@ -64,7 +64,7 @@ public class UsersController(
         string sessionIdHash)
     {
         await _sessionManager.Remove(
-            userId, 
+            userId,
             sessionIdHash);     
         return Ok(new 
         { 

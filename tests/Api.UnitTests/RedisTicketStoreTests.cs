@@ -463,11 +463,17 @@ public class RedisTicketStoreTests
         var userId = random.Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
+        var httpContext = new DefaultHttpContext();
+        var httpContextAccessorMock = new Mock<IHttpContextAccessor>();
+        httpContextAccessorMock
+            .Setup(x => x.HttpContext)
+            .Returns(httpContext);
+
         var (redisTicketStore,
             redisDatabaseMock,
             timeProvider) = CreateTicketStore(
                 null,
-                new Mock<IHttpContextAccessor>().Object);
+               httpContextAccessorMock.Object);
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
@@ -484,7 +490,8 @@ public class RedisTicketStoreTests
             DeviceInfo = Guid.NewGuid().ToString(),
             Location = Guid.NewGuid().ToString(),
             LoginTime = timeProvider.GetUtcNow().AddDays(-1 * random.Next(short.MaxValue)),
-            SessionIdHash = sessionIdHash
+            SessionIdHash = sessionIdHash,
+            CorrelationId = Guid.NewGuid().ToString(),
         };
         redisDatabaseMock.Setup(db => db.HashGetAsync(
             $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
@@ -508,6 +515,9 @@ public class RedisTicketStoreTests
             {
                 LastSeen = timeProvider.GetUtcNow()
             });
+
+        // Correlation ID is set
+        httpContext.Items[RedisTicketStore.SessionCorrelationKey] = userSessionDto.CorrelationId;
     }
 
     [Fact]
