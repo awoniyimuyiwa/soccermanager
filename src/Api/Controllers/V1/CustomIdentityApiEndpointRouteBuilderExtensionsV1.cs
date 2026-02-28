@@ -1,4 +1,5 @@
 ﻿using Api.Extensions;
+using Api.Models.V1;
 using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Antiforgery;
@@ -8,7 +9,6 @@ using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
@@ -54,7 +54,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         // Endpoint for SPAs to fetch the initial antiforgery token required for 
         // state-changing requests (POST, PUT, PATCH, DELETE) and login attempts 
         // when using Cookie Authentication.
-        routeGroup.MapGet("/antiforgery-token", async(
+        routeGroup.MapGet("/antiforgery-token", (
             HttpContext httpContext,
             [FromServices] IServiceProvider sp) =>
         {
@@ -65,17 +65,44 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             return TypedResults.NoContent();
         }).WithSummary("Initializes the XSRF token for the client.");
 
-        // Endpoint for SPAs to terminate the user session. 
-        // This clears the Authentication Cookie and triggers the 'OnSigningOut' event 
+        // Endpoint for SPAs and mobile apps to terminate the user session. 
+        // This invalidates the session in the Redis store (revoking access/refresh tokens),
+        // clears the Authentication Cookie, and triggers the 'OnSigningOut' event 
         // to remove the 'XSRF-TOKEN' cookie from the browser.
-        routeGroup.MapPost("/logout", async (SignInManager<ApplicationUser> signInManager) =>
-        {            
+        routeGroup.MapPost("/logout", async (
+            HttpContext context,
+            SignInManager<ApplicationUser> signInManager,
+            IOptionsMonitor<BearerTokenOptions> bearerOptions,
+            IUserSessionManager sessionManager) =>
+        {
+            var authHeader = context.Request.Headers.Authorization.ToString();
+            var sessionId = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? authHeader["Bearer ".Length..].Trim()
+                : null;
+
+            if (!string.IsNullOrWhiteSpace(sessionId)) 
+            {
+                var protector = bearerOptions.Get(IdentityConstants.BearerScheme).BearerTokenProtector;
+                var ticket = protector.Unprotect(sessionId);
+
+                // Extract the UserId and SessionId from the Ticket
+                var userId = ticket?.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
+
+                if (!string.IsNullOrWhiteSpace(userId))
+                {
+                    await sessionManager.Remove(
+                        long.Parse(userId),
+                        sessionId);
+                }
+            }
+
+            // Clear the Identity Cookie (for browsers)
             await signInManager.SignOutAsync();
 
             return TypedResults.NoContent();
         }).RequireAuthorization()
-        .WithSummary("Logs out the current user and clears security cookies.")
-        .WithDescription("Terminates the authenticated session and removes the client-side antiforgery token."); ;
+        .WithSummary("Logs out the user and invalidates only the current session.")
+        .WithDescription("Clears security cookies, revokes the access/refresh session in Redis, and removes the client-side antiforgery token.");
         #endregion
 
         // NOTE: We cannot inject UserManager<TUser> directly because the TUser generic parameter is currently unsupported by RDG.
@@ -123,18 +150,21 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             return TypedResults.Ok();
         });
 
+        #region CustomCode
+        // Force persistent cookies by ignoring 'useSessionCookies'. 
+        // Since sessions are stored in Redis, the browser must be prevented from 
+        // 'silently' deleting the cookie upon closure without notifying the server.
+        // This ensures the Browser and Redis TTL remain synchronized.
         routeGroup.MapPost("/login", async Task<Results<Ok<AccessTokenResponse>, EmptyHttpResult, ProblemHttpResult>>(
             [FromBody] LoginRequest login, 
-            [FromQuery] bool? useCookies, 
-            [FromQuery] bool? useSessionCookies,
+            [FromQuery] bool? useCookies,
             HttpContext httpContext,
             [FromServices] IServiceProvider sp,
             [FromServices] IAntiforgery antiforgery) =>
         {
-            var useCookieScheme = useCookies == true || useSessionCookies == true;
-            var isPersistent = useCookies == true && useSessionCookies != true;
-            
-            #region CustomCode
+            var useCookieScheme = useCookies == true;
+            var isPersistent = true;
+          
             if (useCookieScheme)
             {
                 // Defends against "Login CSRF" attacks where an attacker tricks a victim 
@@ -148,7 +178,6 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
                     return TypedResults.Problem(Constants.AntiforgeryValidationErrorMesage, statusCode: StatusCodes.Status400BadRequest);
                 }
             }
-            #endregion
 
             var signInManager = sp.GetRequiredService<SignInManager<ApplicationUser>>();
             signInManager.AuthenticationScheme = useCookieScheme ? IdentityConstants.ApplicationScheme : IdentityConstants.BearerScheme;
@@ -172,9 +201,15 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
                 return TypedResults.Problem(result.ToString(), statusCode: StatusCodes.Status401Unauthorized);
             }
 
+            if (useCookieScheme)
+            {
+                httpContext.GetAndStoreAntiforgeryToken();
+            }
+            
             // The signInManager already produced the needed response in the form of a cookie or bearer token.
             return TypedResults.Empty;
         }).DisableAntiforgery(); // <--- This prevents the group filter from running;
+        #endregion
 
         routeGroup.MapPost("/refresh", async Task<Results<Ok<AccessTokenResponse>, UnauthorizedHttpResult, SignInHttpResult, ChallengeHttpResult>>
             ([FromBody] RefreshRequest refreshRequest, [FromServices] IServiceProvider sp) =>
@@ -443,6 +478,60 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             return TypedResults.Ok(await CreateInfoResponseAsync(user, userManager));
         });
+
+        #region CustomCode
+        // Endpoint to fetch all active sessions for the current user. This is useful for account management pages where users can see all their active sessions and log out of them if needed.
+        accountGroup.MapGet("/sessions", async Task<Results<Ok<SessionsModel>, UnauthorizedHttpResult, ProblemHttpResult>> (
+            ClaimsPrincipal claimsPrincipal,
+            [FromServices] IUserSessionManager sessionManager) =>
+        {
+            var userId = claimsPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return TypedResults.Unauthorized();
+            }
+
+            var sessions = await sessionManager.GetAll(long.Parse(userId));
+
+            return TypedResults.Ok(new SessionsModel { Sessions = sessions });
+        }).RequireAuthorization()
+        .WithSummary("Retrieves all active sessions for the current user.");
+
+        accountGroup.MapDelete("/sessions/{sessionId}", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
+            string sessionId,
+            ClaimsPrincipal claimsPrincipal,
+            [FromServices] IUserSessionManager sessionManager) =>
+        {
+            var userId = claimsPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                return TypedResults.Unauthorized();
+            }
+
+            await sessionManager.Remove(
+                long.Parse(userId),
+                sessionId);
+
+            return TypedResults.NoContent();
+        }).WithSummary("Revokes the specified session for the current user.");
+
+        accountGroup.MapPost("/revoke-sessions", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
+            ClaimsPrincipal claimsPrincipal,
+            [FromServices] IUserSessionManager sessionManager) =>
+        {
+            var userId = claimsPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                return TypedResults.Unauthorized();
+            }
+
+            await sessionManager.RemoveAll(long.Parse(userId));
+
+            return TypedResults.NoContent();
+        }).WithSummary("Revokes all active sessions for the current user.");
+        #endregion
 
         async Task SendConfirmationEmailAsync(TUser user, UserManager<TUser> userManager, HttpContext context, string email, bool isChange = false)
         {

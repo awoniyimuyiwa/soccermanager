@@ -1,5 +1,5 @@
 using Api.Extensions;
-using Microsoft.Extensions.Configuration;
+using Api.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
@@ -20,7 +20,7 @@ public class ServiceCollectionExtensionsTests
         var password = "TestPassword123";
         var cert = GenerateCertificate(password, now.AddDays(-1));
         var (services,
-            config,
+            customDataProtectionOptions,
             connectionMultiplexer,
             logger) = GetMocks(
             password,
@@ -29,7 +29,8 @@ public class ServiceCollectionExtensionsTests
 
         // Act
         services.AddCustomDataProtection(
-            config,
+            "",
+            customDataProtectionOptions,
             connectionMultiplexer,
             logger,
             timeProvider);
@@ -49,7 +50,7 @@ public class ServiceCollectionExtensionsTests
         var password = "TestPassword123";
         var cert = GenerateCertificate(password,now.AddDays(15));
         var (services,
-           config,
+           customDataProtectionOptions,
            connectionMultiplexer,
            logger) = GetMocks(
            password,
@@ -58,7 +59,8 @@ public class ServiceCollectionExtensionsTests
 
         // Act
         services.AddCustomDataProtection(
-            config,
+            "",
+            customDataProtectionOptions,
             connectionMultiplexer,
             logger,
             timeProvider);
@@ -78,7 +80,7 @@ public class ServiceCollectionExtensionsTests
         var password = "TestPassword123";
         var cert = GenerateCertificate(password, now.AddDays(365));
         var (services,
-            config,
+            customDataProtectionOptions,
             connectionMultiplexer,
             logger) = GetMocks(
             password,
@@ -87,7 +89,8 @@ public class ServiceCollectionExtensionsTests
 
         // Act
         services.AddCustomDataProtection(
-            config,
+            "",
+            customDataProtectionOptions,
             connectionMultiplexer,
             logger,
             timeProvider);
@@ -127,7 +130,7 @@ public class ServiceCollectionExtensionsTests
 
     private static (
        ServiceCollection services,
-       IConfigurationRoot config,
+       CustomDataProtectionOptions customDataProtectionOptions,
        IConnectionMultiplexer connectionMultiplexer,
        ILogger logger) GetMocks(
        string testPassword,
@@ -137,16 +140,22 @@ public class ServiceCollectionExtensionsTests
         var loggerMock = new Mock<ILogger>();
         loggerMock.Setup(x => x.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> {
-                {"DataProtectionOptions:Certificates:0:Base64", expiredCertBase64},
-                {"DataProtectionOptions:Certificates:0:Password", testPassword}
-            }).Build();
         var services = new ServiceCollection();
+
+        var customDataProtectionOptions = new CustomDataProtectionOptions
+        {
+            Certificates =
+            [
+                new() {
+                    Base64 = expiredCertBase64,
+                    Password = testPassword
+                }
+            ]
+        };
 
         return (
             services,
-            config,
+            customDataProtectionOptions,
             connectionMultiplexerMock.Object,
             loggerMock.Object);
     }

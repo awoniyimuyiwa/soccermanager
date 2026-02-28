@@ -51,6 +51,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPlayerRepository, PlayerRepository>();
         services.AddScoped<ITeamRepository, TeamRepository>();
         services.AddScoped<ITransferRepository, TransferRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();  
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         return services;

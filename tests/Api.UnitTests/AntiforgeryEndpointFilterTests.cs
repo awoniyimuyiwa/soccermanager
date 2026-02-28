@@ -19,7 +19,7 @@ public class AntiforgeryEndpointFilterTests
     [InlineData("PATCH")]
     [InlineData("POST")]
     [InlineData("PUT")]
-    public async Task OnInvokeAsync_WhenBearerAuthenticationIsNotUsedAndValidationFails_ReturnsBadRequestResult(string method)
+    public async Task OnInvokeAsync_BearerAuthenticationIsNotUsedAndValidationFails_ReturnsBadRequestResult(string method)
     {
         // Arrange
         var (endpointFiterInvocationContext, 
