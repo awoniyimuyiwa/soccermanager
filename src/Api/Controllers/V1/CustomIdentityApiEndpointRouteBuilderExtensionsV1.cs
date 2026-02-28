@@ -92,7 +92,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
                 {
                     await sessionManager.Remove(
                         long.Parse(userId),
-                        sessionId);
+                        sessionId.Hash());
                 }
             }
 
@@ -497,8 +497,8 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         }).RequireAuthorization()
         .WithSummary("Retrieves all active sessions for the current user.");
 
-        accountGroup.MapDelete("/sessions/{sessionId}", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
-            string sessionId,
+        accountGroup.MapDelete("/sessions/{sessionIdHash}", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
+            string sessionIdHash,
             ClaimsPrincipal claimsPrincipal,
             [FromServices] IUserSessionManager sessionManager) =>
         {
@@ -511,7 +511,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             await sessionManager.Remove(
                 long.Parse(userId),
-                sessionId);
+                sessionIdHash);
 
             return TypedResults.NoContent();
         }).WithSummary("Revokes the specified session for the current user.");

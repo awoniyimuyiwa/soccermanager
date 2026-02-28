@@ -1,4 +1,5 @@
-﻿using Api.Options;
+﻿using Api.Extensions;
+using Api.Options;
 using Domain;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Authentication;
@@ -365,10 +366,20 @@ public class RedisTicketStore(
     public async Task<AuthenticationTicket?> RetrieveAsync(string sessionId)
     {
         var parts = sessionId.Split(':');
-        var userId = parts[0];
-        var value = await _database.StringGetAsync($"{{User:{userId}}}:{KeyPrefix}{sessionId}");
+        var userId = parts[0]; 
+        var value = await _database.StringGetAsync($"{{User:{userId}}}:{KeyPrefix}{sessionId.Hash()}");
 
-        return value.IsNull ? null : TicketSerializer.Default.Deserialize(value!);
+        var authenticationTicket = value.IsNull ? null : TicketSerializer.Default.Deserialize(value!);
+        if (authenticationTicket is null) { return null; }
+
+        await UpdateUserSession(
+            sessionId,
+            authenticationTicket,
+            userId,
+           _timeProvider.GetUtcNow());
+
+        // Update the session's metadata (last seen) in Redis
+        return authenticationTicket;
     }
 
     public async Task RenewAsync(
@@ -378,33 +389,13 @@ public class RedisTicketStore(
         var userId = authenticationTicket.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
         var now = _timeProvider.GetUtcNow();
         authenticationTicket.Properties.ExpiresUtc ??= now.Add(_securityOptions.CurrentValue.CookieTimeout);
-
-        var existing = await _database.HashGetAsync(
-            $"{{User:{userId}}}:{UserSessionPrefix}",
-            sessionId);
-
-        var httpContext = _httpContextAccessor.HttpContext;
-
-        // Reconstruct if missing from cache for some reason
-        var dto = existing != RedisValue.Null ?
-            JsonSerializer.Deserialize<UserSessionDto>((string)existing!, _jsonOptions)
-            :new UserSessionDto
-            {
-                AuthScheme = authenticationTicket.AuthenticationScheme,
-                DeviceInfo = GetDeviceInfo(httpContext?.Request.Headers.UserAgent ?? string.Empty),
-                IpAddress = httpContext?.Connection.RemoteIpAddress?.ToString(),
-                Location = GetLocation(httpContext?.Connection.RemoteIpAddress?.ToString()),
-                LoginTime = now,
-                SessionId = sessionId
-            };
-
-        dto!.LastSeen = now;
-       
-        await StoreAndSync(
-           userId!,
-           dto,
-           authenticationTicket,
-           now);
+         
+        // Update the session's expiry and metadata (last seen) in Redis
+        await UpdateUserSession(
+            sessionId, 
+            authenticationTicket, 
+            userId!,
+            now);
     }
 
     public async Task<IEnumerable<UserSessionDto>> GetAll(long userId)
@@ -421,13 +412,13 @@ public class RedisTicketStore(
                 _timeProvider.GetUtcNow().ToUnixTimeSeconds()
             ]);
 
-        var hashValues = (RedisValue[]?)result;
-        if (hashValues is null) { return []; }
+        var redisValues = (RedisValue[]?)result;
+        if (redisValues is null) { return []; }
 
         // Treat tickets with the same correlation id (Access/Refresh token) as one,
         //   pick the most recently used amongst them.
         // Deleting any of them will cause the remaining to be deleted.
-        return hashValues
+        return redisValues
             .Select(v => JsonSerializer.Deserialize<UserSessionDto>((string)v!, _jsonOptions)!)
             .Where(v => v is not null)
             .OrderByDescending(v => v.LastSeen)
@@ -442,7 +433,7 @@ public class RedisTicketStore(
            [
                $"{{User:{userId}}}:{UserSessionPrefix}", // Key 1: Mapping Index
                $"{{User:{userId}}}:{UserExpiryPrefix}",  // Key 2: Expiry Index
-               $"{{User:{userId}}}:{KeyPrefix}"
+               $"{{User:{userId}}}:{KeyPrefix}" // Key 3: Session Index
            ],
            []
         );
@@ -453,22 +444,23 @@ public class RedisTicketStore(
         var parts = sessionId.Split(':');
         var userId = parts[0];
 
-        var sessionKey = $"{{User:{userId}}}:{KeyPrefix}{sessionId}";
+        var sessionIdHash = sessionId.Hash();
+        var sessionKey = $"{{User:{userId}}}:{KeyPrefix}{sessionIdHash}";
         var ticketBytes = await _database.StringGetAsync(sessionKey);
         if (ticketBytes.IsNull) { return; }
 
         var ticket = TicketSerializer.Default.Deserialize(ticketBytes!);
 
         await Remove(
-            sessionId,
+            sessionIdHash,
             ticket);
     }
 
     public async Task Remove(
         long userId, 
-        string sessionId)
+        string sessionIdHash)
     {
-        var ticketBytes = await _database.StringGetAsync($"{{User:{userId}}}:{KeyPrefix}{sessionId}");
+        var ticketBytes = await _database.StringGetAsync($"{{User:{userId}}}:{KeyPrefix}{sessionIdHash}");
         if (ticketBytes.IsNull) { return; }
 
         var ticket = TicketSerializer.Default.Deserialize(ticketBytes!);
@@ -478,7 +470,7 @@ public class RedisTicketStore(
         if (ticketUserId != userId.ToString()) { return; }
 
         await Remove(
-            sessionId, 
+            sessionIdHash,
             ticket);
     }
 
@@ -497,22 +489,15 @@ public class RedisTicketStore(
                 now);
         }
 
-        var httpContext = _httpContextAccessor.HttpContext;
-        var userSession = new UserSessionDto
-        {
-            AuthScheme = authenticationTicket.AuthenticationScheme,
-            CorrelationId = correlationId,
-            DeviceInfo = GetDeviceInfo(httpContext?.Request.Headers.UserAgent ?? string.Empty),
-            IpAddress = httpContext?.Connection.RemoteIpAddress?.ToString(),
-            LastSeen = now,
-            Location = GetLocation(httpContext?.Connection.RemoteIpAddress?.ToString()),
-            LoginTime = now,
-            SessionId = sessionId
-        };
+        var dto = CreateUserSession(
+            sessionId,
+            authenticationTicket,
+            now,
+            correlationId);
 
         await StoreAndSync(
             userId!,
-            userSession,
+            dto,
             authenticationTicket,
             now);
 
@@ -527,15 +512,15 @@ public class RedisTicketStore(
         if (_securityOptions.CurrentValue.LoginConcurrencyMode == LoginConcurrencyMode.Block)
         {
             var result = await _database.ScriptEvaluateAsync(
-            GetAndPruneScript, // This ensures the active session count is 100% accurate.   
-            [
-                $"{{User:{userId}}}:{UserSessionPrefix}",
-                $"{{User:{userId}}}:{UserExpiryPrefix}",
-                $"{{User:{userId}}}:{KeyPrefix}" // Prefixed automatically!
-            ],
-            [
-                now.ToUnixTimeSeconds()
-            ]);
+                GetAndPruneScript, // This ensures the active session count is 100% accurate.   
+                [
+                    $"{{User:{userId}}}:{UserSessionPrefix}",
+                    $"{{User:{userId}}}:{UserExpiryPrefix}",
+                    $"{{User:{userId}}}:{KeyPrefix}" // Prefixed automatically!
+                ],
+                [
+                    now.ToUnixTimeSeconds()
+                ]);
 
             if (result.Length == 0) { return; }
 
@@ -555,12 +540,61 @@ public class RedisTicketStore(
         {
             await RemoveAll(long.Parse(userId!));
         }
-        else    
-        {    
-            await RemoveUnrelated(    
+        else
+        {
+            await RemoveUnrelated(
                 correlationId,
                 long.Parse(userId!));
         }
+    }
+
+    private async Task UpdateUserSession(
+        string sessionId,
+        AuthenticationTicket authenticationTicket,
+        string userId,
+        DateTimeOffset now)
+    {
+        var existing = await _database.HashGetAsync(
+            $"{{User:{userId}}}:{UserSessionPrefix}",
+            sessionId.Hash());
+
+        // Reconstruct if missing from cache for some reason
+        var dto = existing != RedisValue.Null ?
+            JsonSerializer.Deserialize<UserSessionDto>((string)existing!, _jsonOptions)
+            : CreateUserSession(
+                sessionId,
+                authenticationTicket,
+                now);
+
+        dto!.LastSeen = now;
+        // Other updates here if needed
+
+        await StoreAndSync(
+           userId!,
+           dto,
+           authenticationTicket,
+           now);
+    }
+
+    private UserSessionDto CreateUserSession(
+        string sessionId,
+        AuthenticationTicket authenticationTicket,
+        DateTimeOffset now,
+        string? correlationId = null)
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+
+        return new UserSessionDto
+        {
+            AuthScheme = authenticationTicket.AuthenticationScheme,
+            CorrelationId = correlationId,
+            DeviceInfo = GetDeviceInfo(httpContext?.Request.Headers.UserAgent ?? string.Empty),
+            IpAddress = httpContext?.Connection.RemoteIpAddress?.ToString(),
+            LastSeen = now,
+            Location = GetLocation(httpContext?.Connection.RemoteIpAddress?.ToString()),
+            LoginTime = now,
+            SessionIdHash = sessionId.Hash() // Store only the hash of the sessionId for privacy
+        };
     }
 
     private async Task StoreAndSync(
@@ -579,13 +613,13 @@ public class RedisTicketStore(
                 // $"{{User:{userId}}}: co-locates the session blob with the user's other keys
                 // This allows Lua script to perform UNLINK, HDEL, and ZREM across these different keys
                 // without triggering a CROSSSLOT error in  clustered Redis environments.
-                $"{{User:{userId}}}:{KeyPrefix}{userSessionDto.SessionId}",
+                $"{{User:{userId}}}:{KeyPrefix}{userSessionDto.SessionIdHash}",
                 $"{{User:{userId}}}:{UserSessionPrefix}",
                 $"{{User:{userId}}}:{UserExpiryPrefix}"
             ],
             values:
             [
-                userSessionDto.SessionId,
+                userSessionDto.SessionIdHash,
                 ticket.Properties.ExpiresUtc!.Value.ToUnixTimeSeconds(),
                 now.ToUnixTimeSeconds(),
                 userSessionJson,
@@ -655,7 +689,7 @@ public class RedisTicketStore(
     }
    
     private async Task Remove(
-        string sessionId, 
+        string sessionIdHash, 
         AuthenticationTicket? ticket)
     {
         if (ticket is null) { return; }
@@ -671,7 +705,7 @@ public class RedisTicketStore(
                 $"{{User:{userId}}}:{KeyPrefix}" // Prefix as KEY (library prepends namespace)
             ],
             [
-                sessionId,
+                sessionIdHash,
                 _timeProvider.GetUtcNow().ToUnixTimeSeconds()
             ]
         );
@@ -700,9 +734,19 @@ public interface IUserSessionManager
 {
     Task<IEnumerable<UserSessionDto>> GetAll(long userId);
 
+    /// <summary>
+    /// Removes a specific session from the store using its hashed identifier.
+    /// </summary>
+    /// <param name="userId">The unique identifier of the user who owns the session.</param>
+    /// <param name="sessionIdHash">The URL-safe Base64 encoded SHA256 hash of the original session ID.</param>
+    /// <remarks>
+    /// This method is intended for administrative or manual session management. 
+    /// It is not invoked by standard .NET Identity or authentication middleware.
+    /// For security, the raw session ID is never persisted; only this hash is stored and visible in the backend.
+    /// </remarks>
     Task Remove(
         long userId,
-        string sessionId);
+        string sessionIdHash);
 
     Task RemoveAll(long userId);
 }
@@ -727,5 +771,14 @@ public record UserSessionDto
 
     public DateTimeOffset LoginTime { get; set; }
 
-    public string SessionId { get; set; } = string.Empty;
+    /// <summary>
+    /// Gets or sets the hashed version of the session identifier.
+    /// </summary>
+    /// <value>A URL-safe Base64 encoded SHA256 hash.</value>
+    /// <remarks>
+    /// For security, the raw session ID is never persisted in Redis. This hashed 
+    /// representation is used for storage lookups and session management to 
+    /// prevent session hijacking in the event of a database compromise.
+    /// </remarks>
+    public string SessionIdHash { get; set; } = string.Empty;
 }
