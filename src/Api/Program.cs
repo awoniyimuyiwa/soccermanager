@@ -17,6 +17,7 @@ using Medallion.Threading.SqlServer;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -236,6 +237,7 @@ builder.Services.AddSingleton<IGeoIP2DatabaseReader>(sp =>
 });
 
 builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddSingleton<RedisTicketStore>();
 builder.Services.AddSingleton<ITicketStore>(sp => sp.GetRequiredService<RedisTicketStore>());
 builder.Services.AddSingleton<ISecureDataFormat<AuthenticationTicket>>(sp => sp.GetRequiredService<RedisTicketStore>());
@@ -250,6 +252,14 @@ builder.Services.AddCustomDataProtection(
     customDataProtectionOptions!,
     prefixedMultiplexer, 
     logger);
+
+// Register the specific base IDataProtector for your application
+builder.Services.AddSingleton<IDataProtector>(sp =>
+{
+    var provider = sp.GetRequiredService<IDataProtectionProvider>();
+
+    return provider.CreateProtector(cachePrefix);
+});
 
 builder.Services.AddAntiforgery(options =>
 {

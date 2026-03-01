@@ -4,7 +4,7 @@ using Domain;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using System.Security.Claims;
@@ -41,6 +41,7 @@ namespace Api;
 /// </list>
 /// </remarks>
 /// <param name="database">Redis database used for low-level atomic operations.</param>
+/// <param name="protector">The <see cref="IDataProtector"/> used as the cryptographic root for encryption.</param>
 /// <param name="httpContextAccessor">Provides access to request headers and IP addresses for metadata tracking.</param>
 /// <param name="geoReader">MaxMind database reader to resolve IP addresses to geographical locations.</param>
 /// <param name="securityOptions">Application-specific security configurations like Concurrency Modes.</param>
@@ -48,6 +49,7 @@ namespace Api;
 /// <param name="uaParser">Parser to translate raw User-Agents into friendly device descriptions.</param>
 public class RedisTicketStore(
     IDatabase database,
+    IDataProtector protector,
     IGeoIP2DatabaseReader geoReader,
     IHttpContextAccessor httpContextAccessor,
     IOptionsMonitor<SecurityOptions> securityOptions,
@@ -55,6 +57,7 @@ public class RedisTicketStore(
     Parser uaParser) : ITicketStore, ISecureDataFormat<AuthenticationTicket>, IUserSessionManager
 {
     readonly IDatabase _database = database;
+    readonly Lazy<IDataProtector> _protector = new(() => protector.CreateProtector(SessionPurpose));
     readonly IGeoIP2DatabaseReader _geoReader = geoReader;
     readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
     readonly IOptionsMonitor<SecurityOptions> _securityOptions = securityOptions;
@@ -76,11 +79,14 @@ public class RedisTicketStore(
     public const string GenericLocation = "Unknown Location";
     public const string GetAndPruneScriptName = "GetAndPruneSessions";
     public const string RemoveAndSyncScriptName = "RemoveSessionAndSync";
-    public const string RemoveAllSessionsScriptName = "RemoveAllSessions";
+    public const string RemoveAllScriptName = "RemoveAllSessions";
     public const string RemoveUnrelatedAndSyncScriptName = "RemoveUnrelatedAndSync";
+    public const string RenewAndSyncScriptName = "RenewAndSyncSession";
     public const string StoreAndSyncScriptName = "StoreAndSyncSessions";
-
+    public const string UpdateLastSeenScriptName = "UpdateLastSeen";
     public const string SessionCorrelationKey = "SessionCorrelationId";
+
+    public const string SessionPurpose = "Session";
 
     /// <summary>
     /// This script adds the sessionId to the Sorted Set (with its expiry score) and immediately updates the TTL of both the Hash and Sorted Set to match the new "latest" session.
@@ -90,7 +96,7 @@ public class RedisTicketStore(
     const string StoreAndSyncScript = $$"""
         -- Script Name {{StoreAndSyncScriptName}}
         -- KEYS[1]: Individual Session Key (e.g., "AuthSession:sessionId")
-        -- KEYS[2]: User Sessions Hash (e.g., "UserSession:userId")
+        -- KEYS[2]: User Session (e.g., "UserSession:userId")
         -- KEYS[3]: User Expiry Sorted Set (e.g., "UserExpiry:userId")
 
         -- ARGV[1]: Session ID
@@ -176,6 +182,71 @@ public class RedisTicketStore(
         return redis.call('HVALS', userMappingKey)
         """;
 
+    const string UpdateLastSeenScript = $$"""
+        -- Script Name {{UpdateLastSeenScriptName}}
+        -- KEYS[1]: User Session Hash (e.g., "UserSession:userId")
+        -- ARGV[1]: Session ID (The field in the hash)
+        -- ARGV[2]: New LastSeen Timestamp string
+
+        -- Retrieve the existing JSON metadata
+        local json_str = redis.call('HGET', KEYS[1], ARGV[1])
+        if not json_str then
+            return nil -- Session not found
+        end
+
+        -- Decode JSON into a Lua table
+        local obj = cjson.decode(json_str)
+
+        -- Update only the lastSeen field
+        obj['lastSeen'] = ARGV[2]
+
+        -- Re-encode and save back to the same field
+        redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(obj))
+
+        return 'OK'
+        """;
+
+    const string RenewAndSyncScript = $$"""       
+        -- Script Name {{RenewAndSyncScriptName}}
+        -- KEYS[1]: Individual Session Key ("AuthSession:sessionId")
+        -- KEYS[2]: User Session Hash ("UserSession:userId")
+        -- KEYS[3]: User Expiry Sorted Set ("UserExpiry:userId")
+
+        -- ARGV[1]: Session ID Hash
+        -- ARGV[2]: New Expiry Timestamp (Score/Seconds)
+        -- ARGV[3]: Current Timestamp (Now/Seconds)
+        -- ARGV[4]: New LastSeen ISO String (for JSON update)
+        -- ARGV[5]: New auth ticket
+
+        -- Update the Expiry in the Sorted Set
+        redis.call('ZADD', KEYS[3], ARGV[2], ARGV[1])
+
+        -- Update ticket data
+        redis.call('SET', KEYS[1], ARGV[5])
+
+        -- Update ONLY the lastSeen field in the Hash JSON
+        local json_str = redis.call('HGET', KEYS[2], ARGV[1])
+        if json_str then
+            local data = cjson.decode(json_str)
+            data['lastSeen'] = ARGV[4]
+            redis.call('HSET', KEYS[2], ARGV[1], cjson.encode(data))
+        end
+
+        -- Calculate and Sync TTLs
+        local latest = redis.call('ZREVRANGE', KEYS[3], 0, 0, 'WITHSCORES')
+        if #latest > 0 then
+            local latestScore = tonumber(latest[2])
+            local ttlSeconds = math.ceil(latestScore - tonumber(ARGV[3]))
+
+            if ttlSeconds > 0 then
+                redis.call('EXPIRE', KEYS[1], ttlSeconds)
+                redis.call('EXPIRE', KEYS[2], ttlSeconds)
+                redis.call('EXPIRE', KEYS[3], ttlSeconds)
+            end
+        end
+        return 1
+        """;
+
     /// <summary>
     /// Script to Remove a session, related sessions with the same correlation id and update the group TTL to the next-best session
     /// </summary>
@@ -239,7 +310,7 @@ public class RedisTicketStore(
     /// This script is used to efficiently remove all sessions for a user. It retrieves all session IDs from the Hash, deletes each corresponding ticket from the Distributed Cache, and then removes the Hash and Sorted Set entries for that user. By doing this in a single Lua script, we minimize the number of round-trips to Redis and ensure atomicity of the operation.
     /// </summary>   
     const string RemoveAllSessionsScript = $$"""  
-        -- Script Name {{RemoveAllSessionsScriptName}}
+        -- Script Name {{RemoveAllScriptName}}
         local userMappingKey = KEYS[1]
         local userExpiryKey = KEYS[2]
         local fullPrefixedPrefix = KEYS[3]
@@ -319,14 +390,16 @@ public class RedisTicketStore(
         return #keysToRemove
      """;
 
-    public async Task<string> StoreAsync(AuthenticationTicket authenticationTicket)
+    public Task<string> StoreAsync(AuthenticationTicket authenticationTicket)
     {
         var now = _timeProvider.GetUtcNow();
         authenticationTicket.Properties.ExpiresUtc ??= now.Add(_securityOptions.CurrentValue.CookieTimeout);
         
-        return await Store(
+        var sessionId = Store(
             authenticationTicket, 
             now);
+
+        return Task.FromResult(sessionId);
     }
        
     public string Protect(AuthenticationTicket authenticationTicket)
@@ -342,48 +415,40 @@ public class RedisTicketStore(
             correlationId = Guid.NewGuid().ToString();
             httpContext!.Items[SessionCorrelationKey] = correlationId;
         }
-        
-        var now = _timeProvider.GetUtcNow();
 
-        // Returns the sessionId as bearer token
-        return Task.Run(() => Store(
+        var now = _timeProvider.GetUtcNow();
+        var sessionId = Store(
             authenticationTicket,
             now,
-            correlationId)).GetAwaiter().GetResult();
+            correlationId);
+
+        return sessionId.Protect(_protector.Value, purpose);
     }
 
-    public AuthenticationTicket? Unprotect(string? sessionId)
-        => Unprotect(sessionId, null);
+    public AuthenticationTicket? Unprotect(string? protectedText)
+        => Unprotect(protectedText, null);
 
     public AuthenticationTicket? Unprotect(
-        string? sessionId,
+        string? protectedText,
         string? purpose)
     {
+        if (string.IsNullOrWhiteSpace(protectedText)) { return null; }
+
+        var sessionId = protectedText.Unprotect(  
+            _protector.Value,
+            purpose);
+
         if (string.IsNullOrWhiteSpace(sessionId)) { return null; }
 
-        return Task.Run(() => RetrieveAsync(sessionId)).GetAwaiter().GetResult();
+        return Retrieve(sessionId);
     }
 
-    public async Task<AuthenticationTicket?> RetrieveAsync(string sessionId)
+    public Task<AuthenticationTicket?> RetrieveAsync(string sessionId)
     {
-        var parts = sessionId.Split(':');
-        var userId = parts[0]; 
-        var value = await _database.StringGetAsync($"{{User:{userId}}}:{KeyPrefix}{sessionId.Hash()}");
-
-        var authenticationTicket = value.IsNull ? null : TicketSerializer.Default.Deserialize(value!);
-        if (authenticationTicket is null) { return null; }
-
-        await UpdateUserSession(
-            sessionId,
-            authenticationTicket,
-            userId,
-           _timeProvider.GetUtcNow());
-
-        // Update the session's metadata (last seen) in Redis
-        return authenticationTicket;
+       return Task.FromResult(Retrieve(sessionId));
     }
 
-    public async Task RenewAsync(
+    public Task RenewAsync(
         string sessionId,
         AuthenticationTicket authenticationTicket)
     {
@@ -392,11 +457,13 @@ public class RedisTicketStore(
         authenticationTicket.Properties.ExpiresUtc ??= now.Add(_securityOptions.CurrentValue.CookieTimeout);
          
         // Update the session's expiry and metadata (last seen) in Redis
-        await UpdateUserSession(
-            sessionId, 
-            authenticationTicket, 
+        UpdateUserSession(
+            sessionId.Hash(), 
             userId!,
-            now);
+            now,
+            authenticationTicket);
+
+        return Task.CompletedTask;
     }
 
     public async Task<IEnumerable<UserSessionDto>> GetAll(long userId)
@@ -426,10 +493,10 @@ public class RedisTicketStore(
             .DistinctBy(v => string.IsNullOrWhiteSpace(v.CorrelationId) ? Guid.NewGuid().ToString() : v.CorrelationId);
     }
 
-    public async Task RemoveAll(long userId)
+    public Task RemoveAll(long userId)
     {
         // Execute the script atomically on the Redis server
-        await _database.ScriptEvaluateAsync(
+        _database.ScriptEvaluate(
            RemoveAllSessionsScript,
            [
                $"{{User:{userId}}}:{UserSessionPrefix}", // Key 1: Mapping Index
@@ -438,27 +505,44 @@ public class RedisTicketStore(
            ],
            []
         );
+
+        return Task.CompletedTask;
     }
 
-    public async Task RemoveAsync(string sessionId)
+    public Task RemoveAsync(string sessionId)
     {
+        if (string.IsNullOrWhiteSpace(sessionId)) { return Task.CompletedTask; }
+
         var parts = sessionId.Split(':');
         var userId = parts[0];
+        RemoveFromStore(
+            long.Parse(userId),
+            sessionId.Hash());
 
-        var sessionIdHash = sessionId.Hash();
-        var sessionKey = $"{{User:{userId}}}:{KeyPrefix}{sessionIdHash}";
-        var ticketBytes = await _database.StringGetAsync(sessionKey);
-        if (ticketBytes.IsNull) { return; }
+        return Task.CompletedTask;
+    }
 
-        var ticket = TicketSerializer.Default.Deserialize(ticketBytes!);
+    public Task RemoveProtected(
+        string protectedText,
+        string purpose)
+    {
+        var sessionId = protectedText.Unprotect(
+            _protector.Value, 
+            purpose);
 
-        await Remove(
-            sessionIdHash,
-            ticket);
+        if (string.IsNullOrWhiteSpace(sessionId)) { return Task.CompletedTask; }
+
+        var parts = sessionId.Split(':');
+        var userId = parts[0];
+        RemoveFromStore(
+            long.Parse(userId),
+            sessionId.Hash());
+
+        return Task.CompletedTask;
     }
 
     public async Task Remove(
-        long userId, 
+        long userId,
         string sessionIdHash)
     {
         var ticketBytes = await _database.StringGetAsync($"{{User:{userId}}}:{KeyPrefix}{sessionIdHash}");
@@ -470,12 +554,12 @@ public class RedisTicketStore(
         // Guard against cross-user session deletion
         if (ticketUserId != userId.ToString()) { return; }
 
-        await Remove(
-            sessionIdHash,
-            ticket);
+        RemoveFromStore(
+            userId,
+            sessionIdHash);
     }
 
-    private async Task<string> Store(
+    private string Store(
         AuthenticationTicket authenticationTicket,
         DateTimeOffset now,
         string? correlationId = null)
@@ -484,7 +568,7 @@ public class RedisTicketStore(
         var sessionId = $"{userId}:{Guid.NewGuid()}";
         if (_securityOptions.CurrentValue.LoginConcurrencyMode != LoginConcurrencyMode.AllowMultiple)
         {
-            await EnforceLoginPolicy(
+            EnforceLoginPolicy(
                 userId!,
                 correlationId,
                 now);
@@ -496,7 +580,7 @@ public class RedisTicketStore(
             now,
             correlationId);
 
-        await StoreAndSync(
+        StoreAndSync(
             userId!,
             dto,
             authenticationTicket,
@@ -505,14 +589,14 @@ public class RedisTicketStore(
         return sessionId;
     }
 
-    private async Task EnforceLoginPolicy(
+    private void EnforceLoginPolicy(
         string userId,
         string? correlationId,
         DateTimeOffset now)
     {
         if (_securityOptions.CurrentValue.LoginConcurrencyMode == LoginConcurrencyMode.Block)
         {
-            var result = await _database.ScriptEvaluateAsync(
+            var result = _database.ScriptEvaluate(
                 GetAndPruneScript, // This ensures the active session count is 100% accurate.   
                 [
                     $"{{User:{userId}}}:{UserSessionPrefix}",
@@ -539,48 +623,85 @@ public class RedisTicketStore(
         // Remove existing sessions for kick out
         if (string.IsNullOrWhiteSpace(correlationId))
         {
-            await RemoveAll(long.Parse(userId!));
+            RemoveAll(long.Parse(userId!));
         }
         else
         {
-            await RemoveUnrelated(
-                correlationId,
-                long.Parse(userId!));
+            RemoveUnrelated(
+               correlationId,
+               long.Parse(userId!));
         }
     }
 
-    private async Task UpdateUserSession(
-        string sessionId,
-        AuthenticationTicket authenticationTicket,
-        string userId,
-        DateTimeOffset now)
+    private AuthenticationTicket? Retrieve(string sessionId)
     {
-        var existing = await _database.HashGetAsync(
+        var parts = sessionId.Split(':');
+        var userId = parts[0];
+        var sessionIdHash = sessionId.Hash();
+        var value = _database.StringGet($"{{User:{userId}}}:{KeyPrefix}{sessionIdHash}");
+
+        var authenticationTicket = value.IsNull ? null : TicketSerializer.Default.Deserialize(value!);
+        if (authenticationTicket is null) { return null; }
+
+        UpdateUserSession(
+            sessionIdHash,
+            userId,
+            _timeProvider.GetUtcNow());
+
+        return authenticationTicket;
+    }
+
+    private void UpdateUserSession(
+        string sessionIdHash,
+        string userId,
+        DateTimeOffset now,
+        AuthenticationTicket? authenticationTicket = null)
+    {
+        var existing = _database.HashGet(
             $"{{User:{userId}}}:{UserSessionPrefix}",
-            sessionId.Hash());
+            sessionIdHash);
 
-        // Reconstruct if missing from cache for some reason
-        var dto = existing != RedisValue.Null ?
-            JsonSerializer.Deserialize<UserSessionDto>((string)existing!, _jsonOptions)
-            : CreateUserSession(
-                sessionId,
-                authenticationTicket,
-                now);
-
-        if (!string.IsNullOrWhiteSpace(dto!.CorrelationId))
+        var dto = existing.IsNull ? 
+            null
+            : JsonSerializer.Deserialize<UserSessionDto>((string)existing!, _jsonOptions);
+        if (dto is not null
+            && !string.IsNullOrWhiteSpace(dto.CorrelationId))
         {
             // Flow the CorrelationId
             _httpContextAccessor.HttpContext!.Items[SessionCorrelationKey] = dto.CorrelationId;
         }
 
-        dto!.LastSeen = now;
-        // Other updates here if needed
+        if (authenticationTicket is not null)
+        {
+            var serializedTicket = TicketSerializer.Default.Serialize(authenticationTicket);
 
-        await StoreAndSync(
-           userId!,
-           dto,
-           authenticationTicket,
-           now);
+            _database.ScriptEvaluate(
+                RenewAndSyncScript,
+                [
+                    $"{{User:{userId}}}:{KeyPrefix}{sessionIdHash}",
+                    $"{{User:{userId}}}:{UserSessionPrefix}",
+                    $"{{User:{userId}}}:{UserExpiryPrefix}"
+                ],
+                [
+                    sessionIdHash,
+                    authenticationTicket.Properties.ExpiresUtc!.Value.ToUnixTimeSeconds(),
+                    now.ToUnixTimeSeconds(),
+                    now.ToString("O"), // ISO 8601 for the JSON
+                    serializedTicket
+                ]);
+        }
+        else
+        { 
+            _database.ScriptEvaluate( 
+                UpdateLastSeenScript,
+                [ 
+                    $"{{User:{userId}}}:{UserSessionPrefix}",
+                ],
+                [
+                     sessionIdHash,
+                     now.ToString("O")
+                ]);
+        }
     }
 
     private UserSessionDto CreateUserSession(
@@ -604,7 +725,7 @@ public class RedisTicketStore(
         };
     }
 
-    private async Task StoreAndSync(
+    private void StoreAndSync(
         string userId,
         UserSessionDto userSessionDto,
         AuthenticationTicket ticket,
@@ -613,7 +734,7 @@ public class RedisTicketStore(
         var serializedTicket = TicketSerializer.Default.Serialize(ticket);
         var userSessionJson = JsonSerializer.Serialize(userSessionDto, _jsonOptions);
 
-        await _database.ScriptEvaluateAsync(
+        _database.ScriptEvaluate(
             StoreAndSyncScript,
             keys:
             [
@@ -633,7 +754,7 @@ public class RedisTicketStore(
                 serializedTicket
             ]);
     }
-
+    
     private string GetLocation(string? ipAddress)
     {
         if (string.IsNullOrWhiteSpace(ipAddress))
@@ -695,16 +816,12 @@ public class RedisTicketStore(
         }
     }
    
-    private async Task Remove(
-        string sessionIdHash, 
-        AuthenticationTicket? ticket)
+    private void RemoveFromStore(
+        long userId,
+        string sessionIdHash)
     {
-        if (ticket is null) { return; }
-
-        var userId = ticket.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
-
         // Remove from Hash/ZSET and sync group TTL
-        await _database.ScriptEvaluateAsync(
+        _database.ScriptEvaluate(
             RemoveAndSyncScript,
             [
                 $"{{User:{userId}}}:{UserSessionPrefix}", // Hash Tag ensures same slot in clustered Redis
@@ -718,11 +835,11 @@ public class RedisTicketStore(
         );
     }
 
-    private async Task RemoveUnrelated(
+    private void RemoveUnrelated(
         string correlationId,
         long userId)
     {
-        await _database.ScriptEvaluateAsync(
+         _database.ScriptEvaluate(
             RemoveUnrelatedAndSyncScript,
             [
                 $"{{User:{userId}}}:{UserSessionPrefix}",
@@ -754,6 +871,22 @@ public interface IUserSessionManager
     Task Remove(
         long userId,
         string sessionIdHash);
+
+    /// <summary>
+    /// Decrypts the protected token to identify and remove the corresponding session.
+    /// </summary>
+    /// <param name="protectedText">The encrypted, URL-safe session token (e.g., AccessToken) provided by the client.</param>
+    /// <param name="purpose">
+    /// The specific purpose string used during protection. 
+    /// Note: This must exactly match the framework-provided purpose to succeed.
+    /// </param>
+    /// <remarks>
+    /// This method is intended to be called when logging out using an access token 
+    /// or when rotating a refresh token to invalidate the previous session state.
+    /// </remarks>
+    Task RemoveProtected(
+        string protectedText, 
+        string purpose);
 
     Task RemoveAll(long userId);
 }

@@ -1,4 +1,5 @@
-﻿using System.Buffers.Text;
+﻿using Microsoft.AspNetCore.DataProtection;
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -21,5 +22,73 @@ public static class StringExtensions
 
         // Base64Url (- for +, _ for /, no padding(=))
         return Base64Url.EncodeToString(bytes);
+    }
+
+    /// <summary>
+    /// Cryptographically protects the string and returns a URL-safe encoded result.
+    /// </summary>
+    /// <param name="unprotectedText">The raw string to protect (e.g., a SessionId).</param>
+    /// <param name="protector">The base data protector.</param>
+    /// <param name="purpose">An optional specific purpose string for additional cryptographic isolation.</param>
+    /// <returns>An encrypted, URL-safe Base64 string.</returns>
+    public static string Protect(
+         this string unprotectedText,
+         IDataProtector protector,
+         string? purpose)
+    {
+        // Apply purpose-based isolation if provided
+        var purposeProtector = string.IsNullOrWhiteSpace(purpose)
+            ? protector
+            : protector.CreateProtector(purpose);
+
+        // Convert string to bytes for the protector
+        var unprotectedBytes = Encoding.UTF8.GetBytes(unprotectedText);
+
+        // Encrypt the data
+        var protectedBytes = purposeProtector.Protect(unprotectedBytes);
+
+        // Encode to a URL-safe format (removes +, /, and =) for HTTP transport
+        return Base64Url.EncodeToString(protectedBytes);
+    }
+
+    /// <summary>
+    /// Decodes and decrypts a URL-safe protected string back to its original value.
+    /// </summary>
+    /// <param name="protectedText">The encrypted, Base64Url encoded string.</param>
+    /// <param name="protector">
+    /// The <see cref="IDataProtector"/> used for cryptographic operations. 
+    /// Note: The purpose chain of this instance must exactly match the one used during protection.
+    /// </param>
+    /// <param name="purpose">The optional runtime purpose provided by the framework.</param>
+    /// <returns>The original raw string, or null if decryption or decoding fails.</returns>
+    public static string? Unprotect(
+         this string protectedText,
+         IDataProtector protector,
+         string? purpose)
+    {
+        if (string.IsNullOrWhiteSpace(protectedText)) return null;
+
+        try
+        {
+            // Decode from URL-safe Base64
+            var protectedBytes = Base64Url.DecodeFromChars(protectedText);
+            if (protectedBytes == null) return null;
+
+            // Select the correct protector scope
+            var purposeProtector = string.IsNullOrWhiteSpace(purpose)
+                ? protector
+                : protector.CreateProtector(purpose);
+
+            // Decrypt the bytes
+            var unprotectedBytes = purposeProtector.Unprotect(protectedBytes);
+
+            // Convert back to the original string
+            return Encoding.UTF8.GetString(unprotectedBytes);
+        }
+        catch (Exception)
+        {
+            // Return null on tampering, expiry, or malformed input
+            return null;
+        }
     }
 }

@@ -12,6 +12,7 @@ public class ConfigureBearerTokenOptions(ISecureDataFormat<AuthenticationTicket>
         BearerTokenOptions options)
     {
         options.BearerTokenExpiration = TimeSpan.FromHours(1);
+        options.RefreshTokenExpiration = TimeSpan.FromDays(14);
 
         options.BearerTokenProtector = secureDataFormat;
 
