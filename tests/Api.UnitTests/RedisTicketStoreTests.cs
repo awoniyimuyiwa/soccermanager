@@ -3,19 +3,18 @@ using Api.Options;
 using Domain;
 using MaxMind.GeoIP2;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.VisualStudio.TestPlatform.ObjectModel.DataCollection;
 using Moq;
 using StackExchange.Redis;
-using System;
-using System.Net.Http;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using UAParser;
-using static Microsoft.ApplicationInsights.MetricDimensionNames.TelemetryContext;
 
 namespace Api.UnitTests;
 
@@ -35,21 +34,27 @@ public class RedisTicketStoreTests
         var userId = new Random().Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.AllowMultiple);
+        var databaseMock = new Mock<IDatabase>();
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                securityOptions,
-                new Mock<IHttpContextAccessor>().Object);
-       
+        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.AllowMultiple);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            null!,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            new Mock<IHttpContextAccessor>().Object,
+            securityOptions,
+            timeProvider,
+            Parser.GetDefault());
+
         // Act
-        var sessionId = await redisTicketStore.StoreAsync(authTicket);
+        var sessionId = await store.StoreAsync(authTicket);
 
         // Assert
         // No session pruning 
-        redisDatabaseMock.Verify(
-            db => db.ScriptEvaluateAsync(
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
                 It.Is<string>(s => s.Contains(RedisTicketStore.GetAndPruneScriptName)),
                 It.IsAny<RedisKey[]>(),
                 It.IsAny<RedisValue[]>(),
@@ -57,7 +62,7 @@ public class RedisTicketStoreTests
             Times.Never);
 
         AssertSessionStored(
-            redisDatabaseMock,
+            databaseMock,
             authTicket, 
             new()
             {
@@ -76,25 +81,30 @@ public class RedisTicketStoreTests
         // Arrange
         var userId = new Random().Next();
         var authTicket = CreateAuthenticationTicket(userId);
-        
+
+        var databaseMock = new Mock<IDatabase>();
+        SetupExistingSessions(databaseMock);
+
         var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.KickOut);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-              securityOptions,
-              new Mock<IHttpContextAccessor>().Object);
-
-        SetupExistingSessions(redisDatabaseMock);
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            null!,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            new Mock<IHttpContextAccessor>().Object,
+            securityOptions,
+            timeProvider,
+            Parser.GetDefault());
 
         // Act
-        var sessionId = await redisTicketStore.StoreAsync(authTicket);
+        var sessionId = await store.StoreAsync(authTicket);
 
         // Assert
         // Kickout
-        redisDatabaseMock.Verify(
-            db => db.ScriptEvaluateAsync(
-                It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAllSessionsScriptName)),
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
+                It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAllScriptName)),
                 It.Is<RedisKey[]>(
                     k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
                          && k[1] == $"{{User:{userId}}}:{RedisTicketStore.UserExpiryPrefix}"
@@ -104,7 +114,7 @@ public class RedisTicketStoreTests
             Times.Once);
 
         AssertSessionStored(
-            redisDatabaseMock, 
+            databaseMock, 
             authTicket,
             new()
             {
@@ -124,29 +134,34 @@ public class RedisTicketStoreTests
         var userId = new Random().Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
+        var databaseMock = new Mock<IDatabase>();
+        SetupExistingSessions(databaseMock);
+
         var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.Block);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                securityOptions, 
-                new Mock<IHttpContextAccessor>().Object);
-
-        SetupExistingSessions(redisDatabaseMock);
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            null!,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            null!,
+            securityOptions,
+            timeProvider,
+            Parser.GetDefault());
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<DomainException>(() => redisTicketStore.StoreAsync(authTicket));
+        var exception = await Assert.ThrowsAsync<DomainException>(() => store.StoreAsync(authTicket));
         Assert.Equal(
             Constants.ConcurrentLoginErrorMessage,
             exception.Message);
 
         AssertSessionPruning(
-            redisDatabaseMock,
+            databaseMock,
             timeProvider,
             userId);
 
         // Nothing deleted
-        redisDatabaseMock.Verify(
+        databaseMock.Verify(
             db => db.KeyDeleteAsync(
                 It.IsAny<RedisKey>(),
                 It.IsAny<CommandFlags>()),
@@ -160,7 +175,7 @@ public class RedisTicketStoreTests
         var userId = new Random().Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.AllowMultiple);
+        var databaseMock = new Mock<IDatabase>();
 
         var httpContext = new DefaultHttpContext();
         //httpContext.Request.Headers.UserAgent = "Mozilla/5.0...";
@@ -170,27 +185,45 @@ public class RedisTicketStoreTests
             .Setup(x => x.HttpContext)
             .Returns(httpContext);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                securityOptions,
-                httpContextAccessorMock.Object);
+        var protector = new EphemeralDataProtectionProvider().CreateProtector("Test");
+        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.AllowMultiple);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            protector,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            httpContextAccessorMock.Object,
+            securityOptions!,
+            timeProvider,
+            Parser.GetDefault());
+
+        var purpose = Guid.NewGuid().ToString();
 
         // Act
-        var sessionId = redisTicketStore.Protect(authTicket);
+        var protectedText = store.Protect(
+            authTicket, 
+            purpose);
 
         // Assert
+        Assert.NotNull(protectedText);
+
         // No session pruning 
-        redisDatabaseMock.Verify(
-            db => db.ScriptEvaluateAsync(
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
                 It.Is<string>(s => s.Contains(RedisTicketStore.GetAndPruneScriptName)),
                 It.IsAny<RedisKey[]>(),
                 It.IsAny<RedisValue[]>(),
                 It.IsAny<CommandFlags>()),
-            Times.Never);
+          Times.Never);
+
+        var unprotectedText = protectedText.Unprotect(
+            protector.CreateProtector(RedisTicketStore.SessionPurpose),
+            purpose);
+        Assert.NotNull(unprotectedText);
 
         AssertSessionStored(
-            redisDatabaseMock,
+            databaseMock,
             authTicket,
             new()
             {
@@ -200,7 +233,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionIdHash = sessionId.Hash()
+                SessionIdHash = unprotectedText.Hash()
             });
     }
 
@@ -214,34 +247,39 @@ public class RedisTicketStoreTests
         var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.Block);
 
         var httpContext = new DefaultHttpContext();
-
         var httpContextAccessorMock = new Mock<IHttpContextAccessor>();
         httpContextAccessorMock
             .Setup(x => x.HttpContext)
             .Returns(httpContext);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-               securityOptions,
-               httpContextAccessorMock.Object);
+        var databaseMock = new Mock<IDatabase>();
+        SetupExistingSessions(databaseMock);
 
-        SetupExistingSessions(redisDatabaseMock);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+
+        var ticketStore = new RedisTicketStore(
+            databaseMock.Object,
+            new Mock<IDataProtector>().Object,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            httpContextAccessorMock.Object!,
+            securityOptions,
+            timeProvider,
+            Parser.GetDefault());
 
         // Act & Assert
-        var exception = Assert.Throws<DomainException>(() => redisTicketStore.Protect(authTicket));
+        var exception = Assert.Throws<DomainException>(() => ticketStore.Protect(authTicket));
         Assert.Equal(
             Constants.ConcurrentLoginErrorMessage,
             exception.Message);
 
         // Assert
         AssertSessionPruning(
-            redisDatabaseMock,
+            databaseMock,
             timeProvider,
             userId);
 
         // Nothing deleted
-        redisDatabaseMock.Verify(
+        databaseMock.Verify(
             db => db.KeyDeleteAsync(
                 It.IsAny<RedisKey>(),
                 It.IsAny<CommandFlags>()),
@@ -255,10 +293,13 @@ public class RedisTicketStoreTests
         var userId = new Random().Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.Block);
-
         // Simulate a session with a matching correlation ID already in the store
         var correlationId = Guid.NewGuid().ToString();
+        var databaseMock = new Mock<IDatabase>();
+        SetupExistingSessions(
+            databaseMock,
+            correlationId);
+
         var httpContext = new DefaultHttpContext();
         httpContext.Items[RedisTicketStore.SessionCorrelationKey] = correlationId;
         var httpContextAccessorMock = new Mock<IHttpContextAccessor>();
@@ -266,27 +307,42 @@ public class RedisTicketStoreTests
             .Setup(x => x.HttpContext)
             .Returns(httpContext);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                securityOptions,
-                httpContextAccessorMock.Object);
+        var protector = new EphemeralDataProtectionProvider().CreateProtector("Test");
+        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.Block);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
 
-        SetupExistingSessions(
-            redisDatabaseMock, 
-            correlationId);
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            protector,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            httpContextAccessorMock.Object,
+            securityOptions!,
+            timeProvider,
+            Parser.GetDefault());
+
+        var purpose = Guid.NewGuid().ToString();
 
         // Act
-        var sessionId = redisTicketStore.Protect(authTicket);
+        var protectedText = store.Protect(
+            authTicket, 
+            purpose);
 
         // Assert
+        Assert.NotNull(protectedText);
+       
         AssertSessionPruning(
-            redisDatabaseMock,
+            databaseMock,
             timeProvider,
             userId);
 
+        // Unprotect using the same dedicated purpose defined in the store
+        var unprotectedText = protectedText.Unprotect(
+            protector.CreateProtector(RedisTicketStore.SessionPurpose),
+            purpose);
+        Assert.NotNull(unprotectedText);
+
         AssertSessionStored(
-            redisDatabaseMock,
+            databaseMock,
             authTicket,
             new()
             {
@@ -296,7 +352,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionIdHash = sessionId.Hash()
+                SessionIdHash = unprotectedText.Hash()
             });
     }
 
@@ -307,10 +363,13 @@ public class RedisTicketStoreTests
         var userId = new Random().Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.KickOut);
-
         // Simulate a session with a matching correlation ID already in the store
         var correlationId = Guid.NewGuid().ToString();
+        var databaseMock = new Mock<IDatabase>();
+        SetupExistingSessions(
+            databaseMock,
+            correlationId);
+
         var httpContext = new DefaultHttpContext();
         httpContext.Items[RedisTicketStore.SessionCorrelationKey] = correlationId;
         var httpContextAccessorMock = new Mock<IHttpContextAccessor>();
@@ -318,23 +377,32 @@ public class RedisTicketStoreTests
             .Setup(x => x.HttpContext)
             .Returns(httpContext);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                securityOptions,
-                httpContextAccessorMock.Object);
+        var protector = new EphemeralDataProtectionProvider().CreateProtector("Test");
+        var securityOptions = CreateSecurityOptions(LoginConcurrencyMode.KickOut);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
 
-        SetupExistingSessions(
-            redisDatabaseMock,
-            correlationId);
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            protector,
+            new Mock<IGeoIP2DatabaseReader>().Object,
+            httpContextAccessorMock.Object,
+            securityOptions!,
+            timeProvider,
+            Parser.GetDefault());
+
+        var purpose = Guid.NewGuid().ToString();
 
         // Act
-        var sessionId = redisTicketStore.Protect(authTicket);
+        var protectedText = store.Protect(
+            authTicket, 
+            purpose);
 
         // Assert
+        Assert.NotNull(protectedText);
+
         // Deletes only unrelated sessions
-        redisDatabaseMock.Verify(
-          db => db.ScriptEvaluateAsync(
+        databaseMock.Verify(
+          db => db.ScriptEvaluate(
               It.Is<string>(s => s.Contains(RedisTicketStore.RemoveUnrelatedAndSyncScriptName)),
               It.Is<RedisKey[]>(
                   k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
@@ -346,8 +414,13 @@ public class RedisTicketStoreTests
               It.IsAny<CommandFlags>()),
           Times.Once);
 
+        var unprotectedText = protectedText.Unprotect(
+            protector.CreateProtector(RedisTicketStore.SessionPurpose), 
+            purpose);
+
+        Assert.NotNull(unprotectedText);
         AssertSessionStored(
-            redisDatabaseMock,
+            databaseMock,
             authTicket,
             new()
             {
@@ -357,7 +430,7 @@ public class RedisTicketStoreTests
                 LastSeen = timeProvider.GetUtcNow(),
                 Location = RedisTicketStore.GenericLocation,
                 LoginTime = timeProvider.GetUtcNow(),
-                SessionIdHash = sessionId.Hash()
+                SessionIdHash = unprotectedText.Hash()
             });
     }
 
@@ -367,22 +440,34 @@ public class RedisTicketStoreTests
         // Arrange
         var userId = new Random().Next();
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore();
+        var databaseMock = new Mock<IDatabase>();
+        var timeProvider = new FakeTimeProvider();
+        var store = CreateStore(
+            databaseMock.Object,
+            timeProvider);
 
-        SetupExistingSessions(redisDatabaseMock);
+        SetupExistingSessions(databaseMock);
 
         // Act
-        var result = await redisTicketStore.GetAll(userId);
+        var result = await store.GetAll(userId);
 
         // Assert
-        AssertSessionPruning(
-            redisDatabaseMock,
-            timeProvider,
-            userId);
+        // Session pruning
+        databaseMock.Verify(
+           db => db.ScriptEvaluateAsync(
+               It.Is<string>(s => s.Contains(RedisTicketStore.GetAndPruneScriptName)),
+               It.Is<RedisKey[]>(
+                   k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
+                        && k[1] == $"{{User:{userId}}}:{RedisTicketStore.UserExpiryPrefix}"
+                        && k[2] == $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}"),
+               It.Is<RedisValue[]>(
+                   v => v[0] == timeProvider.GetUtcNow().ToUnixTimeSeconds()),
+               It.IsAny<CommandFlags>()),
+           Times.Once);
+
 
         Assert.NotNull(result);
+        
         Assert.True(result.Any());
         Assert.True(result.DistinctBy(u => u.CorrelationId).Count() == result.Count());
     }
@@ -395,17 +480,19 @@ public class RedisTicketStoreTests
         var userId = random.Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore();
+        var databaseMock = new Mock<IDatabase>();
+        var timeProvider = new FakeTimeProvider();
+        var store = CreateStore(
+            databaseMock.Object,
+            timeProvider);
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
         var sessionIdHash = sessionId.Hash();
-        redisDatabaseMock.Setup(db => db.StringGetAsync(
+        databaseMock.Setup(db => db.StringGet(
             $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
             It.IsAny<CommandFlags>()))
-            .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
+            .Returns(TicketSerializer.Default.Serialize(authTicket));
 
         // Simulate existing user session metadata
         var userSessionDto = new UserSessionDto()
@@ -416,14 +503,14 @@ public class RedisTicketStoreTests
             LoginTime = timeProvider.GetUtcNow().AddDays(-1 * random.Next(short.MaxValue)),
             SessionIdHash = sessionIdHash
         };
-        redisDatabaseMock.Setup(db => db.HashGetAsync(
+        databaseMock.Setup(db => db.HashGet(
             $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
             sessionIdHash,
             It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
+            .Returns(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
 
         // Act
-        var actual = await redisTicketStore.RetrieveAsync(sessionId);
+        var actual = await store.RetrieveAsync(sessionId);
 
         // Assert
         Assert.NotNull(actual);
@@ -431,25 +518,26 @@ public class RedisTicketStoreTests
             userId.ToString(), 
             authTicket.Principal.FindFirstValue(ClaimTypes.NameIdentifier));
 
-        AssertSessionStored(
-            redisDatabaseMock,
-            authTicket,
-            userSessionDto with 
-            { 
-                LastSeen = timeProvider.GetUtcNow() 
-            });
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
+                It.Is<string>(s => s.Contains(RedisTicketStore.UpdateLastSeenScriptName)),
+                It.Is<RedisKey[]>(
+                    k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"),
+                It.Is<RedisValue[]>(
+                    v => v[0] == userSessionDto.SessionIdHash
+                         && v[1] == timeProvider.GetUtcNow().ToString("O")),
+                It.IsAny<CommandFlags>()),
+            Times.Once);
     }
 
     [Fact]
     public async Task RetrieveAsync_SessionDoesNotExist_ReturnsNull()
     {
         // Arrange
-        var (redisTicketStore,
-            _,
-            _) = CreateTicketStore();
+        var store = CreateStore();
 
         // Act
-        var actual = await redisTicketStore.RetrieveAsync(Guid.NewGuid().ToString());
+        var actual = await store.RetrieveAsync(Guid.NewGuid().ToString());
 
         // Assert
         Assert.Null(actual);
@@ -469,21 +557,17 @@ public class RedisTicketStoreTests
             .Setup(x => x.HttpContext)
             .Returns(httpContext);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                null,
-               httpContextAccessorMock.Object);
-
         // Simulate existing session
+        var databaseMock = new Mock<IDatabase>();
         var sessionId = $"{userId}:{Guid.NewGuid()}";
         var sessionIdHash = sessionId.Hash();
-        redisDatabaseMock.Setup(db => db.StringGetAsync(
+        databaseMock.Setup(db => db.StringGet(
             $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
             It.IsAny<CommandFlags>()))
-            .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
+            .Returns(TicketSerializer.Default.Serialize(authTicket));
 
         // Simulate existing user session metadata
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var userSessionDto = new UserSessionDto()
         {
             AuthScheme = Guid.NewGuid().ToString(),
@@ -493,14 +577,32 @@ public class RedisTicketStoreTests
             SessionIdHash = sessionIdHash,
             CorrelationId = Guid.NewGuid().ToString(),
         };
-        redisDatabaseMock.Setup(db => db.HashGetAsync(
+        databaseMock.Setup(db => db.HashGet(
             $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
             sessionIdHash,
             It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
+            .Returns(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
+
+        var protector = new EphemeralDataProtectionProvider().CreateProtector("Test");
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            protector,
+            null!,
+            httpContextAccessorMock.Object,
+            null!,
+            timeProvider,
+            Parser.GetDefault());
+
+        // Protect using the same dedicated purpose defined in the store
+        var purpose = Guid.NewGuid().ToString();
+        var protectedText = sessionId.Protect(
+            protector.CreateProtector(RedisTicketStore.SessionPurpose), 
+            purpose);
 
         // Act
-        var actual = redisTicketStore.Unprotect(sessionId);
+        var actual = store.Unprotect(
+            protectedText, 
+            purpose);
 
         // Assert
         Assert.NotNull(actual);
@@ -508,13 +610,16 @@ public class RedisTicketStoreTests
             userId.ToString(),
             authTicket.Principal.FindFirstValue(ClaimTypes.NameIdentifier));
 
-        AssertSessionStored(
-            redisDatabaseMock,
-            authTicket,
-            userSessionDto with
-            {
-                LastSeen = timeProvider.GetUtcNow()
-            });
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
+                It.Is<string>(s => s.Contains(RedisTicketStore.UpdateLastSeenScriptName)), 
+                It.Is<RedisKey[]>(
+                    k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"),
+                 It.Is<RedisValue[]>(
+                     v => v[0] == userSessionDto.SessionIdHash
+                          && v[1] == timeProvider.GetUtcNow().ToString("O")),
+                 It.IsAny<CommandFlags>()),
+             Times.Once);
 
         // Correlation ID is set
         httpContext.Items[RedisTicketStore.SessionCorrelationKey] = userSessionDto.CorrelationId;
@@ -528,11 +633,11 @@ public class RedisTicketStoreTests
         var userId = random.Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                null,
-                new Mock<IHttpContextAccessor>().Object);
+        var databaseMock = new Mock<IDatabase>();
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var store = CreateStore(
+            databaseMock.Object,
+            timeProvider);
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
@@ -545,144 +650,98 @@ public class RedisTicketStoreTests
             LoginTime = timeProvider.GetUtcNow().AddDays(-1 *random.Next(short.MaxValue)),
             SessionIdHash = sessionIdHash
         };
-        redisDatabaseMock.Setup(db => db.HashGetAsync(
+        databaseMock.Setup(db => db.HashGet(
             $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}",
             sessionIdHash,
             It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
+            .Returns(JsonSerializer.Serialize(userSessionDto, _jsonOptions));
 
         // Act
-        await redisTicketStore.RenewAsync(
+        await store.RenewAsync(
             sessionId, 
             authTicket);
 
         // Assert
-        AssertSessionStored(
-            redisDatabaseMock,
-            authTicket,
-            userSessionDto with
-            {
-                LastSeen = timeProvider.GetUtcNow()
-            });
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
+                It.Is<string>(s => s.Contains(RedisTicketStore.RenewAndSyncScriptName)),
+                It.Is<RedisKey[]>(
+                    k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}"
+                         && k[1] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
+                         && k[2] == $"{{User:{userId}}}:{RedisTicketStore.UserExpiryPrefix}"),
+                It.Is<RedisValue[]>(
+                    v => v[0] == sessionIdHash
+                         && v[1] == authTicket.Properties.ExpiresUtc!.Value.ToUnixTimeSeconds()
+                         && v[2] == timeProvider.GetUtcNow().ToUnixTimeSeconds()
+                         && v[3] == timeProvider.GetUtcNow().ToString("O")
+                         && v[4] == TicketSerializer.Default.Serialize(authTicket)),
+                It.IsAny<CommandFlags>()),
+            Times.Once);
     }
 
     [Fact]
-    public async Task RenewAsync_SessionDoesNotExist_ReconstructsSession()
-    {
-        // Arrange
-        var random = new Random();
-        var userId = random.Next();
-        var authTicket = CreateAuthenticationTicket(userId);
-
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore(
-                null, 
-                new Mock<IHttpContextAccessor>().Object);
-        
-        var sessionId = $"{userId}:{Guid.NewGuid()}";
-        
-        // Act
-        await redisTicketStore.RenewAsync(
-            sessionId,
-            authTicket);
-
-        // Assert
-        AssertSessionStored(
-            redisDatabaseMock,
-            authTicket,
-            new()
-            {
-                AuthScheme = authTicket.AuthenticationScheme,
-                DeviceInfo = RedisTicketStore.GenericDeviceInfo,
-                LastSeen = timeProvider.GetUtcNow(),
-                Location = RedisTicketStore.GenericLocation,
-                LoginTime = timeProvider.GetUtcNow(),
-                SessionIdHash = sessionId.Hash()
-            });
-    }
-
-    [Fact]
-    public async Task RemoveAsync_SessionExists_IsSuccessful()
+    public async Task RemoveAsync_IsSuccessful()
     {
         // Arrange
         var userId = new Random().Next();
-        var authTicket = CreateAuthenticationTicket(userId);
 
-        var (redisTicketStore,
-            redisDatabaseMock, 
-            timeProvider) = CreateTicketStore();
+        var databaseMock = new Mock<IDatabase>();
+        var timeProvider = new FakeTimeProvider();
+        var store = CreateStore(
+            databaseMock.Object,
+            timeProvider);
 
-        // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
         var sessionIdHash = sessionId.Hash();
-        redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
-            It.IsAny<CommandFlags>()))
-            .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
 
         // Act
-        await redisTicketStore.RemoveAsync(sessionId);
+        await store.RemoveAsync(sessionId);
 
         // Assert
         AssertSessionRemoved(
-            redisDatabaseMock,
+            databaseMock,
             timeProvider,
             userId,
             sessionIdHash);
     }
 
     [Fact]
-    public async Task RemoveAsync_SessionDoesNotExist_IsIdempotent()
-    {
-        // Arrange
-        var (redisTicketStore,
-            redisDatabaseMock,
-            _) = CreateTicketStore();
-
-        // Simulate non existing session
-        var sessionId = $"{new Random().Next()}:{Guid.NewGuid()}";
-
-        // Act
-        await redisTicketStore.RemoveAsync(sessionId);
-
-        // Assert
-        redisDatabaseMock.Verify(
-            db => db.KeyDeleteAsync(
-                It.IsAny<RedisKey>(),
-                It.IsAny<CommandFlags>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task Remove_SessionExists_IsSuccessful()
+    public async Task RemoveProtected_IsSuccessful()
     {
         // Arrange
         var userId = new Random().Next();
-        var authTicket = CreateAuthenticationTicket(userId);
+        var databaseMock = new Mock<IDatabase>();
+        var timeProvider = new FakeTimeProvider();
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            timeProvider) = CreateTicketStore();
+        var protector = new EphemeralDataProtectionProvider().CreateProtector("Test");
+        var store = new RedisTicketStore(
+            databaseMock.Object,
+            protector,
+            null!,
+            new Mock<IHttpContextAccessor>().Object,
+            null!,
+            timeProvider,
+            Parser.GetDefault());
 
-        // Simulate existing session
-        var sessionIdHash = $"{userId}:{Guid.NewGuid()}".Hash();  
-        redisDatabaseMock.Setup(db => db.StringGetAsync(
-            $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionIdHash}",
-            It.IsAny<CommandFlags>()))
-            .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
+        var sessionId = $"{userId}:{Guid.NewGuid()}";
+
+        // Protect using the same dedicated purpose defined in the store
+        var purpose = Guid.NewGuid().ToString();
+        var protectedText = sessionId.Protect(
+            protector.CreateProtector(RedisTicketStore.SessionPurpose),
+            purpose);
 
         // Act
-        await redisTicketStore.Remove(
-            userId,
-            sessionIdHash);
+        await store.RemoveProtected(
+            protectedText,
+            purpose);
 
         // Assert
         AssertSessionRemoved(
-            redisDatabaseMock,
+            databaseMock,
             timeProvider,
-            userId, 
-            sessionIdHash);
+            userId,
+            sessionId.Hash());
     }
 
     [Fact]
@@ -693,13 +752,12 @@ public class RedisTicketStoreTests
         var userId = random.Next();
         var authTicket = CreateAuthenticationTicket(userId);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            _) = CreateTicketStore();
+        var databaseMock = new Mock<IDatabase>();
+        var store = CreateStore(databaseMock.Object);
 
         // Simulate existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
-        redisDatabaseMock.Setup(db => db.StringGetAsync(
+        databaseMock.Setup(db => db.StringGetAsync(
             $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{sessionId.Hash()}",
             It.IsAny<CommandFlags>()))
             .ReturnsAsync(TicketSerializer.Default.Serialize(authTicket));
@@ -707,15 +765,17 @@ public class RedisTicketStoreTests
         var wrongUserId = userId + random.Next(1, int.MaxValue);
 
         // Act
-        await redisTicketStore.Remove(    
+        await store.Remove(    
             wrongUserId,    
-            sessionId);
+            sessionId.Hash());
 
         // Assert
-        redisDatabaseMock.Verify(
-            db => db.KeyDeleteAsync(
-                It.IsAny<RedisKey>(),
-                It.IsAny<CommandFlags>()),
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
+                It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAndSyncScriptName)),
+                It.IsAny<RedisKey[]>(),
+                It.IsAny<RedisValue[]>(),
+                It.IsAny<CommandFlags>()),   
             Times.Never);
     }
 
@@ -725,45 +785,44 @@ public class RedisTicketStoreTests
         // Arrange
         var random = new Random();
         var userId = random.Next();
-        var authTicket = CreateAuthenticationTicket(userId);
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            _) = CreateTicketStore();
+        var databaseMock = new Mock<IDatabase>();
+        var store = CreateStore(databaseMock.Object);
 
         // Simulate non existing session
         var sessionId = $"{userId}:{Guid.NewGuid()}";
 
         // Act
-        await redisTicketStore.Remove(
+        await store.Remove(
             userId,
-            sessionId);
+            sessionId.Hash());
 
         // Assert
-        redisDatabaseMock.Verify(
-            db => db.KeyDeleteAsync(
-                It.IsAny<RedisKey>(),
-                It.IsAny<CommandFlags>()),
-            Times.Never);
+        databaseMock.Verify(
+          db => db.ScriptEvaluate(
+              It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAndSyncScriptName)),
+              It.IsAny<RedisKey[]>(),
+              It.IsAny<RedisValue[]>(),
+              It.IsAny<CommandFlags>()),
+              Times.Never);
     }
-
+    
     [Fact]
     public async Task RemoveAll_IsSuccessful()
     {
         // Arrange
         var userId = new Random().Next();
 
-        var (redisTicketStore,
-            redisDatabaseMock,
-            _) = CreateTicketStore();
+        var databaseMock = new Mock<IDatabase>();
+        var store = CreateStore(databaseMock.Object);
 
         // Act
-        await redisTicketStore.RemoveAll(userId);
+        await store.RemoveAll(userId);
 
         // Assert
-        redisDatabaseMock.Verify(
-           db => db.ScriptEvaluateAsync(
-               It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAllSessionsScriptName)),
+        databaseMock.Verify(
+           db => db.ScriptEvaluate(
+               It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAllScriptName)),
                It.Is<RedisKey[]>(
                    k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
                         && k[1] == $"{{User:{userId}}}:{RedisTicketStore.UserExpiryPrefix}"
@@ -773,29 +832,18 @@ public class RedisTicketStoreTests
                Times.Once);
     }
 
-    private static (
-       RedisTicketStore ticketStore,
-       Mock<IDatabase> databaseMock,
-       TimeProvider timeProvider) CreateTicketStore(
-       IOptionsMonitor<SecurityOptions>? securityOptions = null,
-       IHttpContextAccessor? httpContextAccessor = null)
+    private static RedisTicketStore CreateStore( 
+        IDatabase? database = null,
+        TimeProvider? timeProvider = null)
     {
-        var redisDatabaseMock = new Mock<IDatabase>();
-
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
-
-        var store = new RedisTicketStore(
-            redisDatabaseMock.Object,
-            new Mock<IGeoIP2DatabaseReader>().Object,
-            httpContextAccessor!,
-            securityOptions!,
-            timeProvider,
-            Parser.GetDefault());
-
-        return (
-            store,
-            redisDatabaseMock,
-            timeProvider);
+        return new RedisTicketStore(
+           database ?? new Mock<IDatabase>().Object,
+           new EphemeralDataProtectionProvider().CreateProtector(RedisTicketStore.SessionPurpose),
+           new Mock<IGeoIP2DatabaseReader>().Object,
+           new Mock<IHttpContextAccessor>().Object,
+           new Mock<IOptionsMonitor<SecurityOptions>>().Object,
+           timeProvider ?? new FakeTimeProvider(DateTimeOffset.UtcNow),
+           Parser.GetDefault());
     }
 
     private static IOptionsMonitor<SecurityOptions> CreateSecurityOptions(LoginConcurrencyMode mode)
@@ -827,7 +875,7 @@ public class RedisTicketStoreTests
     }
 
     private static void SetupExistingSessions(
-        Mock<IDatabase> redisDatabaseMock,
+        Mock<IDatabase> databaseMock,
         string correlationId = "test-correlation")
     {
         var existingSessionCount = new Random().Next(1, 10);
@@ -840,8 +888,16 @@ public class RedisTicketStoreTests
             _jsonOptions))
             .ToArray();
 
-        redisDatabaseMock.Setup(
-            db => db.ScriptEvaluateAsync( 
+        databaseMock.Setup(
+            db => db.ScriptEvaluate( 
+                It.Is<string>(s => s.Contains(RedisTicketStore.GetAndPruneScriptName)),
+                It.IsAny<RedisKey[]>(),
+                It.IsAny<RedisValue[]>(),
+                It.IsAny<CommandFlags>()))
+            .Returns(RedisResult.Create(existingSessions));
+
+        databaseMock.Setup(
+            db => db.ScriptEvaluateAsync(
                 It.Is<string>(s => s.Contains(RedisTicketStore.GetAndPruneScriptName)),
                 It.IsAny<RedisKey[]>(),
                 It.IsAny<RedisValue[]>(),
@@ -850,12 +906,12 @@ public class RedisTicketStoreTests
     }
 
     private static void AssertSessionPruning(
-       Mock<IDatabase> redisDatabaseMock,
+       Mock<IDatabase> databaseMock,
        TimeProvider timeProvider,
        long userId)
     {
-        redisDatabaseMock.Verify(
-            db => db.ScriptEvaluateAsync(
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
                 It.Is<string>(s => s.Contains(RedisTicketStore.GetAndPruneScriptName)),
                 It.Is<RedisKey[]>(
                     k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"
@@ -868,14 +924,14 @@ public class RedisTicketStoreTests
     }
 
     private static void AssertSessionStored(
-        Mock<IDatabase> redisDatabaseMock,
+        Mock<IDatabase> databaseMock,
         AuthenticationTicket authenticationTicket,
         UserSessionDto userSessionDto)
     {
         var userId = authenticationTicket.Principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        redisDatabaseMock.Verify(
-           db => db.ScriptEvaluateAsync(
+        databaseMock.Verify(
+           db => db.ScriptEvaluate(
                It.Is<string>(s => s.Contains(RedisTicketStore.StoreAndSyncScriptName)),
                It.Is<RedisKey[]>(
                    k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.KeyPrefix}{userSessionDto.SessionIdHash}"
@@ -892,13 +948,13 @@ public class RedisTicketStoreTests
     }
 
     private static void AssertSessionRemoved(
-        Mock<IDatabase> redisDatabaseMock,
+        Mock<IDatabase> databaseMock,
         TimeProvider timeProvider,
         long userId,
         string sessionIdHash)
     {
-        redisDatabaseMock.Verify(
-            db => db.ScriptEvaluateAsync(
+        databaseMock.Verify(
+            db => db.ScriptEvaluate(
                 It.Is<string>(s => s.Contains(RedisTicketStore.RemoveAndSyncScriptName)),
                 It.Is<RedisKey[]>(
                     k => k[0] == $"{{User:{userId}}}:{RedisTicketStore.UserSessionPrefix}"

@@ -5,7 +5,6 @@ using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.BearerToken;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Identity;
@@ -78,24 +77,15 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             IUserSessionManager sessionManager) =>
         {
             var authHeader = context.Request.Headers.Authorization.ToString();
-            var sessionId = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            var accessToken = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
                 ? authHeader["Bearer ".Length..].Trim()
                 : null;
 
-            if (!string.IsNullOrWhiteSpace(sessionId)) 
+            if (!string.IsNullOrWhiteSpace(accessToken)) 
             {
-                var protector = bearerOptions.Get(IdentityConstants.BearerScheme).BearerTokenProtector;
-                var ticket = protector.Unprotect(sessionId);
-
-                // Extract the UserId and SessionId from the Ticket
-                var userId = ticket?.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
-
-                if (!string.IsNullOrWhiteSpace(userId))
-                {
-                    await sessionManager.Remove(
-                        long.Parse(userId),
-                        sessionId.Hash());
-                }
+                await sessionManager.RemoveProtected(
+                    accessToken,
+                    null!); // Framework uses null for purpose
             }
 
             // Clear the Identity Cookie (for browsers)
@@ -234,8 +224,10 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             var securityOptions = sp.GetRequiredService<IOptions<SecurityOptions>>().Value;
             if (securityOptions.ShouldRotateRefreshTokens)
             {
-                var ticketStore = sp.GetRequiredService<ITicketStore>();
-                await ticketStore.RemoveAsync(refreshRequest.RefreshToken);
+                var sessionManager = sp.GetRequiredService<IUserSessionManager>();
+                await sessionManager.RemoveProtected(
+                    refreshRequest.RefreshToken,
+                    null!); // Framework uses null for purpose
             }
             #endregion
 
