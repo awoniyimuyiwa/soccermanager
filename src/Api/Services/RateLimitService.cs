@@ -10,7 +10,7 @@ using StackExchange.Redis;
 using System.Net;
 using System.Threading.RateLimiting;
 
-namespace Api;
+namespace Api.Services;
 
 /// <summary>
 /// Provides centralized logic for distributed rate limiting using Redis.
@@ -145,8 +145,8 @@ public class RateLimitService(
 
     public bool IsBypassed(string partitionKey) => 
         _rateLimitOptions.WhiteList.Contains(partitionKey)
-        || (IPAddress.TryParse(partitionKey, out var ipAddress)
-            && _rateLimitOptions.WhiteList.Any(w => w.Contains('/') && IPAddressHelper.IsInCidrRange(ipAddress, w)));
+        || IPAddress.TryParse(partitionKey, out var ipAddress)
+            && _rateLimitOptions.WhiteList.Any(w => w.Contains('/') && IPAddressHelper.IsInCidrRange(ipAddress, w));
 
     public async ValueTask HandleOnRejected(
         OnRejectedContext context,

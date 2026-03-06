@@ -151,7 +151,7 @@ class TeamService(
                 playerDto.FirstName,
                 playerDto.LastName,
                 team,
-                playerDto.Type);
+                (PlayerType)playerDto.Type);
 
             _playerRepository.Add(player);
             _playerRepository.AddPlayerValue(new PlayerValue(

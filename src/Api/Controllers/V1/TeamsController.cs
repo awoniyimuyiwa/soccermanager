@@ -1,4 +1,5 @@
 using Api.Attributes;
+using Api.Extensions;
 using Api.Models.V1;
 using Application.Contracts;
 using Domain;
@@ -148,15 +149,11 @@ public class TeamsController(
         Guid id, 
         CreatePlayersModel input)
     {
-        var userId = _userManager.GetUserId(User);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
-
+        var userId = User.GetUserId();
+        
         var players = await _teamService.AddPlayers(    
             id,
-            long.Parse(userId),
+            userId,
             new AddPlayersDto()
             {
                 Players = [.. input.Players.Select(p => p as CreatePlayerDto)],
@@ -215,13 +212,8 @@ public class TeamsController(
         Guid id,
         UpdateTeamModel input)
     {
-        var userIdString = _userManager.GetUserId(User);
-        if (userIdString is null)
-        {
-            return Unauthorized();
-        }
+        var userId = User.GetUserId();
 
-        var userId = long.Parse(userIdString);
         if (await _teamRepository.Any(
             t => t.OwnerId == userId
                  && t.ExternalId != id

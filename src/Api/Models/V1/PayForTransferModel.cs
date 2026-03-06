@@ -7,8 +7,8 @@ public record PayForTransferModel : PayForTransferDto
 {
     [MaxLength(Domain.Constants.StringMaxLength)]
     [Required]
-    public override string ConcurrencyStamp { get; set; } = null!;
+    public override string ConcurrencyStamp { get; init; } = null!;
 
     [Required]
-    public override Guid ToTeamId { get; set; }
+    public override Guid ToTeamId { get; init; }
 }

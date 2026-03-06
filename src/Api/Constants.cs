@@ -20,7 +20,11 @@ public class Constants
 
     public const string GlobalRateLimitPolicyName = "global_rate_limit_policy";
 
+    public const string LlmHttpClientName = "LlmHttpClient";
+
     public const int MaxLengthOfPlayers = 11;
+
+    public const string SecretProtectorPurpose = "VaultedSecrets";
 
     public const string UserRateLimitPolicyName = "user_rate_limit_policy";
 }

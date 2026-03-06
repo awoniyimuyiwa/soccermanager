@@ -1,10 +1,12 @@
 ﻿using Api.Extensions;
 using Api.Models.V1;
 using Api.Options;
+using Api.Services;
 using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.BearerToken;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Identity;
@@ -49,13 +51,14 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         // We'll figure out a unique endpoint name based on the final route pattern during endpoint generation.
         string? confirmEmailEndpointName = null;
 
-        var routeGroup = endpoints.MapGroup("");
-
         #region CustomCode
+        var authGroup = endpoints.MapGroup("auth")
+            .WithTags("Auth");
+        
         // Endpoint for SPAs to fetch the initial antiforgery token required for 
         // state-changing requests (POST, PUT, PATCH, DELETE) and login attempts 
         // when using Cookie Authentication.
-        routeGroup.MapGet("/antiforgery-token", (
+        authGroup.MapGet("/antiforgery-token", (
             HttpContext httpContext,
             [FromServices] IServiceProvider sp) =>
         {
@@ -64,13 +67,14 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             httpContext.GetAndStoreAntiforgeryToken();
 
             return TypedResults.NoContent();
-        }).WithSummary("Initializes the XSRF token for the client.");
+        }).WithSummary("Initializes the XSRF token for the client.")
+        .WithDescription($"Sets the {Constants.AntiforgeryCookieName} and {Constants.AntiforgeryJSReadableCookieName} cookies. Copy the value of {Constants.AntiforgeryJSReadableCookieName} and set the {Constants.AntiforgeryHeaderName} header when making state-changing, cookie-authenticated requests.");
 
         // Endpoint for SPAs and mobile apps to terminate the user session. 
         // This invalidates the session in the Redis store (revoking access/refresh tokens),
         // clears the Authentication Cookie, and triggers the 'OnSigningOut' event 
         // to remove the 'XSRF-TOKEN' cookie from the browser.
-        routeGroup.MapPost("/logout", async (
+        authGroup.MapPost("/logout", async (
             HttpContext context,
             SignInManager<ApplicationUser> signInManager,
             IOptionsMonitor<BearerTokenOptions> bearerOptions,
@@ -99,7 +103,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
         // NOTE: We cannot inject UserManager<TUser> directly because the TUser generic parameter is currently unsupported by RDG.
         // https://github.com/dotnet/aspnetcore/issues/47338    
-        routeGroup.MapPost("/register", async Task<Results<Ok, ValidationProblem>>
+        authGroup.MapPost("/register", async Task<Results<Ok, ValidationProblem>>
             ([FromBody] RegisterRequest registration, HttpContext context, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<TUser>>();
@@ -147,7 +151,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         // Since sessions are stored in Redis, the browser must be prevented from 
         // 'silently' deleting the cookie upon closure without notifying the server.
         // This ensures the Browser and Redis TTL remain synchronized.
-        routeGroup.MapPost("/login", async Task<Results<Ok<AccessTokenResponse>, EmptyHttpResult, ProblemHttpResult>>(
+        authGroup.MapPost("/login", async Task<Results<Ok<AccessTokenResponse>, EmptyHttpResult, ProblemHttpResult>>(
             [FromBody] LoginRequest login, 
             [FromQuery] bool? useCookies,
             HttpContext httpContext,
@@ -203,7 +207,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         }).DisableAntiforgery(); // <--- This prevents the group filter from running;
         #endregion
 
-        routeGroup.MapPost("/refresh", async Task<Results<Ok<AccessTokenResponse>, UnauthorizedHttpResult, SignInHttpResult, ChallengeHttpResult>>
+        authGroup.MapPost("/refresh", async Task<Results<Ok<AccessTokenResponse>, UnauthorizedHttpResult, SignInHttpResult, ChallengeHttpResult>>
             ([FromBody] RefreshRequest refreshRequest,
             [FromServices] IServiceProvider sp) =>
         {
@@ -233,9 +237,9 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             var newPrincipal = await signInManager.CreateUserPrincipalAsync(user);
             return TypedResults.SignIn(newPrincipal, authenticationScheme: IdentityConstants.BearerScheme);
-        }).DisableAntiforgery(); // <--- This prevents the group filter from running;;
+        }).DisableAntiforgery(); // <--- This prevents the group filter from running
 
-        routeGroup.MapGet("/confirm-email", async Task<Results<ContentHttpResult, UnauthorizedHttpResult>>
+        authGroup.MapGet("/confirm-email", async Task<Results<ContentHttpResult, UnauthorizedHttpResult>>
             ([FromQuery] string userId, [FromQuery] string code, [FromQuery] string? changedEmail, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<ApplicationUser>>();
@@ -286,7 +290,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             endpointBuilder.Metadata.Add(new EndpointNameMetadata(confirmEmailEndpointName));
         });
 
-        routeGroup.MapPost("/resend-confirmation-email", async Task<Ok>
+        authGroup.MapPost("/resend-confirmation-email", async Task<Ok>
             ([FromBody] ResendConfirmationEmailRequest resendRequest, HttpContext context, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<TUser>>();
@@ -299,7 +303,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             return TypedResults.Ok();
         });
 
-        routeGroup.MapPost("/forgot-password", async Task<Results<Ok, ValidationProblem>>
+        authGroup.MapPost("/forgot-password", async Task<Results<Ok, ValidationProblem>>
             ([FromBody] ForgotPasswordRequest resetRequest, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<TUser>>();
@@ -318,7 +322,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             return TypedResults.Ok();
         });
 
-        routeGroup.MapPost("/reset-password", async Task<Results<Ok, ValidationProblem>>
+        authGroup.MapPost("/reset-password", async Task<Results<Ok, ValidationProblem>>
             ([FromBody] ResetPasswordRequest resetRequest, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<ApplicationUser>>();
@@ -351,7 +355,9 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             return TypedResults.Ok();
         });
 
-        var accountGroup = routeGroup.MapGroup("/manage").RequireAuthorization();
+        var accountGroup = endpoints.MapGroup("account")
+            .WithTags("Account")
+            .RequireAuthorization();
 
         accountGroup.MapPost("/2fa", async Task<Results<Ok<TwoFactorResponse>, ValidationProblem, NotFound>>
             (ClaimsPrincipal claimsPrincipal, [FromBody] TwoFactorRequest tfaRequest, [FromServices] IServiceProvider sp) =>
@@ -498,8 +504,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             var sessions = await sessionManager.GetAll(long.Parse(userId));
 
             return TypedResults.Ok(new SessionsModel { Sessions = sessions });
-        }).RequireAuthorization()
-        .WithSummary("Retrieves all active sessions for the current user.");
+        }).WithSummary("Retrieves all active sessions for the current user.");
 
         accountGroup.MapDelete("/sessions/{sessionIdHash}", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
             string sessionIdHash,
@@ -535,6 +540,72 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             return TypedResults.NoContent();
         }).WithSummary("Revokes all active sessions for the current user.");
+
+        // Fetch AI setting for the current user.
+        accountGroup.MapGet("/ai-setting", async Task<Results<Ok<AISettingDto>, NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
+            ClaimsPrincipal claimsPrincipal,
+            [FromServices] IUserRepository userRepository) =>
+        {
+            var userId = claimsPrincipal.GetUserId();
+
+            var dto = await userRepository.GetAISetting(userId);
+
+            if (dto is null) { return TypedResults.NoContent(); }
+
+            return TypedResults.Ok(dto);
+        }).WithSummary("Retrieve AI setting for the current user.")
+        .WithDescription("Returns 204 No Content if the user has not configured AI setting.");
+
+        // Update AI setting for the current user.
+        accountGroup.MapPut("/ai-setting", async Task<Results<Ok<AISettingDto>, ValidationProblem, UnauthorizedHttpResult, BadRequest<string>>> (
+            ClaimsPrincipal claimsPrincipal,
+            [FromBody] CreateUpdateAISettingModel input,
+            IChatClientFactory chatClientFactory,
+            IDataProtector dataProtector,
+            TimeProvider timeProvider,
+            IUserService userService,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(input.Key)
+                && input.Provider != (int)AIProvider.Ollama)
+            {
+                return CreateValidationProblem(
+                    nameof(input.Key),
+                    $"Required when {nameof(input.Provider)} is {input.Provider}");
+            }
+
+            await chatClientFactory.Verify(new AISettingDto(
+                Guid.NewGuid(),
+                input.CustomEndpoint,
+                input.Key,
+                input.Model,
+                (AIProvider)input.Provider,
+                timeProvider.GetUtcNow(),
+                null),
+                cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(input.Key))
+            {
+                // Encrypt key
+                input = input with
+                {
+                    Key = input.Key.Protect(
+                        dataProtector, 
+                        Constants.SecretProtectorPurpose)
+                };
+            }
+
+            var userId = claimsPrincipal.GetUserId();
+
+            var dto = await userService.CreateUpdateAISetting(
+                userId,
+                input,
+                cancellationToken);
+
+            return TypedResults.Ok(dto);
+        }).WithValidation<CreateUpdateAISettingModel>()
+        .WithSummary("Update AI setting and API key for the current user.")
+        .WithDescription("The Key is encrypted before storage. For Ollama, the Key can be omitted.");
         #endregion
 
         async Task SendConfirmationEmailAsync(TUser user, UserManager<TUser> userManager, HttpContext context, string email, bool isChange = false)
@@ -568,7 +639,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             await emailSender.SendConfirmationLinkAsync(user, email, HtmlEncoder.Default.Encode(confirmEmailUrl));
         }
 
-        return new IdentityEndpointsConventionBuilder(routeGroup);
+        return new IdentityEndpointsConventionBuilder(endpoints as RouteGroupBuilder ?? throw new InvalidOperationException());
     }
 
     private static ValidationProblem CreateValidationProblem(string errorCode, string errorDescription) =>
@@ -636,28 +707,28 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto()
         {
             DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = PlayerType.Goalkeeper,
+            Type = (int)PlayerType.Goalkeeper,
             Value = Domain.Constants.InitialPlayerValue
         }));
 
         players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
         {
             DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = PlayerType.Defender,
+            Type = (int)PlayerType.Defender,
             Value = Domain.Constants.InitialPlayerValue
         }));
 
         players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
         {
             DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = PlayerType.Midfielder,
+            Type = (int)PlayerType.Midfielder,
             Value = Domain.Constants.InitialPlayerValue
         }));
 
         players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto()
         {
             DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = PlayerType.Attacker,
+            Type = (int)PlayerType.Attacker,
             Value = Domain.Constants.InitialPlayerValue
         }));
 

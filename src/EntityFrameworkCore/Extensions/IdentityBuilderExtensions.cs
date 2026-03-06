@@ -5,10 +5,11 @@ namespace EntityFrameworkCore.Extensions;
 
 public static class IdentityBuilderExtensions
 {
-    public static IdentityBuilder AddCustomEntityFrameworkIdentityStores(this IdentityBuilder builder)
+    public static IdentityBuilder AddCustomEntityFrameworkStores(this IdentityBuilder builder)
     {
         builder.AddEntityFrameworkStores<ApplicationDbContext>();
 
         return builder;
     }
 }
+

@@ -9,11 +9,11 @@ public record CreateTeamModel : CreateTeamDto
     /// Must be a valid ISO 3166-1 alpha-2 country code (e.g., US, GB)
     /// </summary>
     [CountryCode(ErrorMessage = Constants.CountryCodeErrorMessage)]
-    public override string? Country { get; set; }
+    public override string? Country { get; init; }
 
     [MinLength(Domain.Constants.StringMinLength)]
     [MaxLength(Domain.Constants.StringMaxLength)]
-    public override string? Name { get; set; }
+    public override string? Name { get; init; }
 
     /// <summary>
     /// Default is 5,000,000
@@ -21,9 +21,9 @@ public record CreateTeamModel : CreateTeamDto
 
     [Range(0, int.MaxValue)]
     [Required]
-    public override decimal TransferBudget { get; set; } = Domain.Constants.InitialTeamTransferBudget;
+    public override decimal TransferBudget { get; init; } = Domain.Constants.InitialTeamTransferBudget;
 
     [MaxLength(Constants.MaxLengthOfPlayers)]
-    public IReadOnlyCollection<CreatePlayerModel> Players { get; set; } = [];
+    public IReadOnlyCollection<CreatePlayerModel> Players { get; init; } = [];
 }
 

@@ -91,4 +91,40 @@ public static class StringExtensions
             return null;
         }
     }
+
+    /// <summary>
+    /// Decrypts the protected text to create a masked version (e.g., ••••1234) for UI display.
+    /// </summary>
+    /// <param name="protectedText">The encrypted string retrieved from the database.</param>
+    /// <param name="protector">The <see cref="IDataProtector"/> used to decrypt the text.</param>
+    /// <param name="purpose">The specific purpose string used when the text was originally encrypted.</param>
+    /// <returns>A masked string if decryption succeeds; otherwise, a generic mask or null.</returns>
+    public static string? Mask(
+        this string? protectedText,
+        IDataProtector protector,
+        string? purpose)
+    {
+        if (string.IsNullOrWhiteSpace(protectedText)) return null;
+
+        const string mask = "••••";
+
+        try
+        {
+            var unProtectedText = protectedText.Unprotect(protector, purpose);
+
+            if (string.IsNullOrWhiteSpace(unProtectedText)
+                || unProtectedText.Length <= 4)
+            {
+                return mask;
+            }
+
+            // Returns the mask followed by the last 4 characters
+            return $"{mask}{unProtectedText[^4..]}";
+        }
+        catch
+        {
+            // Fallback if the key cannot be decrypted (e.g., after a master key rotation)
+            return mask;
+        }
+    }
 }

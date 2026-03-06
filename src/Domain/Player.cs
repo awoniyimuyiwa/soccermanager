@@ -75,6 +75,11 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
 
         return age;
     }
+
+    public IReadOnlyCollection<decimal> GetAskingPriceHistory()
+    {
+        return [.. Transfers.Select(t => t.AskingPrice)];
+    }
 }
 
 public enum PlayerType
