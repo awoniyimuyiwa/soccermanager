@@ -4,7 +4,7 @@ A robust, scalable **.NET 10 Web API** for managing soccer teams and player tran
 
 This enterprise-grade implementation prioritizes security and modern intelligence through:
 
-* **Hardened Session Management**: Secure state handling using **Redis**, featuring hashed session IDs and encrypted tokens for all data in flight.
+* **Hardened Session Management**: Secure state handling using **Redis**, featuring hashed session IDs and encrypted tokens in flight.
   
 * **At-Rest Data Protection**: Implementation of the **.NET Data Protection** system with AES encryption keys stored in the database, ensuring sensitive assets like **LLM API keys** remain encrypted at rest.
 
