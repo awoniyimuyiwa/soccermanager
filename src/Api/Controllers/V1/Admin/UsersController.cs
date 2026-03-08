@@ -1,4 +1,5 @@
 ﻿using Api.Models.V1;
+using Api.Services;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

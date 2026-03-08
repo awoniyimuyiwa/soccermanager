@@ -9,8 +9,9 @@ public static class ServiceCollectionExtensions
     public static void AddApplicationServices(this IServiceCollection services)
     {
         // Register application services here
+        services.AddScoped<IPlayerService, PlayerService>();
         services.AddScoped<ITeamService, TeamService>();
         services.AddScoped<ITransferService, TransferService>();
-        services.AddScoped<IPlayerService, PlayerService>();
+        services.AddScoped<IUserService, UserService>();
     }
 }

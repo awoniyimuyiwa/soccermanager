@@ -22,6 +22,47 @@ namespace EntityFrameworkCore.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Domain.AISetting", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CustomEndpoint")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("Key")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<int>("Provider")
+                        .HasMaxLength(255)
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique();
+
+                    b.ToTable("AISettings");
+                });
+
             modelBuilder.Entity("Domain.ApplicationRole", b =>
                 {
                     b.Property<long>("Id")
@@ -65,6 +106,9 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("bigint");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("AISettingId")
+                        .HasColumnType("bigint");
 
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("int");
@@ -128,6 +172,10 @@ namespace EntityFrameworkCore.Migrations
                         .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AISettingId")
+                        .IsUnique()
+                        .HasFilter("[AISettingId] IS NOT NULL");
 
                     b.HasIndex("ExternalId")
                         .IsUnique();
@@ -197,7 +245,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AuditLogs", (string)null);
+                    b.ToTable("AuditLogs");
                 });
 
             modelBuilder.Entity("Domain.AuditLogAction", b =>
@@ -231,7 +279,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("AuditLogId");
 
-                    b.ToTable("AuditLogActions", (string)null);
+                    b.ToTable("AuditLogActions");
                 });
 
             modelBuilder.Entity("Domain.BackgroundServiceStat", b =>
@@ -273,7 +321,7 @@ namespace EntityFrameworkCore.Migrations
                     b.HasIndex("Type")
                         .IsUnique();
 
-                    b.ToTable("BackgroundServiceStats", (string)null);
+                    b.ToTable("BackgroundServiceStats");
                 });
 
             modelBuilder.Entity("Domain.EntityChange", b =>
@@ -308,7 +356,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("AuditLogId");
 
-                    b.ToTable("EntityChanges", (string)null);
+                    b.ToTable("EntityChanges");
                 });
 
             modelBuilder.Entity("Domain.Player", b =>
@@ -369,7 +417,7 @@ namespace EntityFrameworkCore.Migrations
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("TeamId"), new[] { "Value" });
 
-                    b.ToTable("Players", null, t =>
+                    b.ToTable("Players", t =>
                         {
                             t.HasTrigger("trg_UpdateTeamValueFromPlayers");
 
@@ -424,7 +472,7 @@ namespace EntityFrameworkCore.Migrations
                         .IsUnique()
                         .HasFilter("[SourceEntityId] IS NOT NULL");
 
-                    b.ToTable("PlayerValues", null, t =>
+                    b.ToTable("PlayerValues", t =>
                         {
                             t.HasTrigger("trg_UpdatePlayerValueFromValues");
                         });
@@ -486,7 +534,7 @@ namespace EntityFrameworkCore.Migrations
                         .IsUnique()
                         .HasFilter("[Name] IS NOT NULL");
 
-                    b.ToTable("Teams", null, t =>
+                    b.ToTable("Teams", t =>
                         {
                             t.HasCheckConstraint("CK_Team_Transfer_Budget", "[TransferBudget] >= 0");
 
@@ -540,7 +588,7 @@ namespace EntityFrameworkCore.Migrations
 
                     b.HasIndex("ToTeamId");
 
-                    b.ToTable("Transfers", null, t =>
+                    b.ToTable("Transfers", t =>
                         {
                             t.HasCheckConstraint("CK_Transfer_Asking_Price_Min", "[AskingPrice] >= 0");
                         });
@@ -592,12 +640,31 @@ namespace EntityFrameworkCore.Migrations
                         .IsUnique()
                         .HasFilter("[TransferId] IS NOT NULL");
 
-                    b.ToTable("TransferBudgetValues", null, t =>
+                    b.ToTable("TransferBudgetValues", t =>
                         {
                             t.HasTrigger("trg_UpdateTeamTransferBudgetFromValues");
                         });
 
                     b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FriendlyName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Xml")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DataProtectionKeys");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<long>", b =>
@@ -701,6 +768,16 @@ namespace EntityFrameworkCore.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.ApplicationUser", b =>
+                {
+                    b.HasOne("Domain.AISetting", "AISetting")
+                        .WithOne()
+                        .HasForeignKey("Domain.ApplicationUser", "AISettingId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("AISetting");
                 });
 
             modelBuilder.Entity("Domain.AuditLog", b =>

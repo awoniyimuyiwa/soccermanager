@@ -1,6 +1,8 @@
 using Domain;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using System.Buffers.Text;
 
 namespace EntityFrameworkCore;
 
@@ -16,26 +18,34 @@ namespace EntityFrameworkCore;
 /// EF Core switches to a 'temp table approach' to safely capture the updated 
 /// <c>RowVersion</c> while allowing database triggers to fire correctly.
 /// </remarks>
-class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, long>(options)
+class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, long>(options), IDataProtectionKeyContext
 {
-    public DbSet<AuditLogAction> AuditLogActions { get; set; }
+    public DbSet<AISetting> AISettings => Set<AISetting>();
 
-    public DbSet<AuditLog> AuditLogs { get; set; }
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
-    public DbSet<BackgroundServiceStat> BackgroundServiceStats { get; set; }
+    public DbSet<AuditLogAction> AuditLogActions  => Set<AuditLogAction>();
 
-    public DbSet<EntityChange> EntityChanges { get; set; }
+    public DbSet<BackgroundServiceStat> BackgroundServiceStats => Set<BackgroundServiceStat>();
 
-    public DbSet<Player> Players { get; set; }
+    /// <summary>
+    /// Stores encrypted keys for .NET data protection (e.g., cookies, tokens).
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
-    public DbSet<PlayerValue> PlayerValues { get; set; }
+    public DbSet<EntityChange> EntityChanges => Set<EntityChange>();
 
-    public DbSet<Team> Teams { get; set; }
+    public DbSet<Player> Players => Set<Player>();
 
-    public DbSet<Transfer> Transfers { get; set; }
+    public DbSet<PlayerValue> PlayerValues => Set<PlayerValue>();
 
-    public DbSet<TransferBudgetValue> TransferBudgetValues { get; set; }
+    public DbSet<Team> Teams => Set<Team>();
 
+    public DbSet<Transfer> Transfers => Set<Transfer>();
+
+    public DbSet<TransferBudgetValue> TransferBudgetValues => Set<TransferBudgetValue>();
+
+   
     /// <summary>
     /// Override OnModelCreating to configure entities
     /// </summary>
@@ -44,19 +54,48 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<AISetting>(aiSettings =>
+        {
+            aiSettings.Property(a => a.CustomEndpoint).HasMaxLength(Domain.Constants.StringMaxLength);
+           
+            aiSettings.Property(a => a.Key)   
+            .HasColumnType("varbinary(max)") // Optimized for encrypted binary payloads. 
+            .HasConversion(  
+                // SQL Storage (binary) <- C# Property (Base64Url string)   
+                v => v != null ? Base64Url.DecodeFromChars(v) : null,
+                    
+                // C# Property (Base64Url string) <- SQL Storage (binary)    
+                v => v != null ? Base64Url.EncodeToString(v) : null);
+
+            aiSettings.Property(a => a.Provider).HasMaxLength(Domain.Constants.StringMaxLength);
+
+            aiSettings.Property(a => a.Model).HasMaxLength(Domain.Constants.StringMaxLength);
+        });
+
         modelBuilder.Entity<ApplicationUser>(applicationUser =>
         {
             applicationUser.Property(au => au.FirstName).HasMaxLength(Domain.Constants.StringMaxLength);
             applicationUser.Property(au => au.LastName).HasMaxLength(Domain.Constants.StringMaxLength);
             applicationUser.Property(au => au.ConcurrencyStamp).HasMaxLength(Domain.Constants.StringMaxLength);
             applicationUser.Property(au => au.Id).ValueGeneratedOnAdd();
-            applicationUser.HasIndex(au => au.ExternalId)
-            .IsUnique();
+            applicationUser.HasIndex(au => au.ExternalId).IsUnique();
 
             applicationUser.HasMany<AuditLog>()
             .WithOne(al => al.User)
             .HasForeignKey(al => al.UserId)
             .IsRequired();
+
+            applicationUser.HasOne(u => u.AISetting)
+            .WithOne()
+            .HasForeignKey<ApplicationUser>(u => u.AISettingId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+            // Tell EF to use the property, which triggers your setter logic
+            applicationUser.Navigation(u => u.AISetting)
+            .UsePropertyAccessMode(PropertyAccessMode.Property);
+
+           applicationUser.Property(u => u.AISettingId)
+            .UsePropertyAccessMode(PropertyAccessMode.Property);
         });
 
         modelBuilder.Entity<ApplicationRole>(applicationRole =>

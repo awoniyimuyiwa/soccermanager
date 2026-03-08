@@ -6,7 +6,9 @@ using Api.Filters;
 using Api.MiddleWares;
 using Api.OpenApi;
 using Api.Options;
+using Api.Services;
 using Api.Utils;
+using Application.Contracts;
 using Application.Extensions;
 using Asp.Versioning;
 using Domain;
@@ -18,6 +20,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.BearerToken;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -78,6 +81,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Post configure
 builder.Services.AddSingleton<IPostConfigureOptions<BearerTokenOptions>, ConfigureBearerTokenOptions>();
 builder.Services.AddSingleton<IPostConfigureOptions<CookieAuthenticationOptions>, ConfigureCookieAuthenticationOptions>();
+builder.Services.AddSingleton<IPostConfigureOptions<JsonOptions>, ConfigureJsonOptions>();
 
 // Add services to the container.
 builder.Services.AddSingleton(TimeProvider.System);
@@ -104,7 +108,8 @@ builder.Services.AddOpenApi(options =>
     });
 
     options.AddSchemaTransformer<EnumSchemaTransformer>();
-    
+    options.AddSchemaTransformer<PasswordSchemaTransformer>();
+
     options.AddOperationTransformer<AntiforgeryHeaderOperationTransformer>();
 });
 
@@ -159,9 +164,16 @@ builder.Services.AddEntityFrameworkServices();
 
 builder.Services.AddIdentityApiEndpoints<ApplicationUser>()
     .AddRoles<ApplicationRole>()
-    .AddCustomEntityFrameworkIdentityStores();
+    .AddCustomEntityFrameworkStores();
 
 builder.Services.AddApplicationServices();
+
+builder.Services.AddHttpClient(Api.Constants.LlmHttpClientName, client =>
+{
+    // High enough for local models (Ollama), safe for Cloud
+    client.Timeout = TimeSpan.FromSeconds(120);
+});
+builder.Services.AddScoped<IChatClientFactory, ChatClientFactory>();
 
 // Configure distributed lock provider here, SQL server, Postgresql or Redis. Zookeeper requires ZooKeeperNetEx library
 builder.Services.AddSingleton<IDistributedLockProvider>(
@@ -355,8 +367,7 @@ app.UseMiddleware<RateLimitHeadersMiddleware>() // Add rate limit headers to suc
     .UseMiddleware<AuditLogMiddleware>() // Audit log middleware should be as early as possible to capture all necessary information.
     .UseMiddleware<TransactionMiddleware>();
 
-app.MapGroup("v{version:apiVersion}/auth")
-    .WithTags("Auth")
+app.MapGroup("v{version:apiVersion}")
     .AddEndpointFilter<AntiforgeryEndpointFilter>()
     .MapCustomIdentityApiV1<ApplicationUser>()
     .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build())

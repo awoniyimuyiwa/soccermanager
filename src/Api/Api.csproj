@@ -10,10 +10,10 @@
 		<UserSecretsId>cd0c4cb8-8228-498a-84f9-c66c19b11755</UserSecretsId>
 	</PropertyGroup>
 	<ItemGroup>
+		<PackageReference Include="Anthropic" />
 		<PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" />
 		<PackageReference Include="DistributedLock.SqlServer" />
 		<PackageReference Include="MaxMind.GeoIP2" />
-		<PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Design">
 			<!--Ensures the design-time assembly is not deployed with the application-->
@@ -34,6 +34,7 @@
 			can still find the necessary design-time logic needed to generate migrations-->
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
+		<PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
 		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
 		<PackageReference Include="Microsoft.Extensions.Resilience" />
 		<PackageReference Include="NWebsec.AspNetCore.Middleware" />
@@ -43,6 +44,7 @@
 		<PackageReference Include="StackExchange.Redis" />
 		<PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" />
 		<PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+		<PackageReference Include="System.ClientModel" />
 		<PackageReference Include="UAParser" />
 	</ItemGroup>
 	<ItemGroup>

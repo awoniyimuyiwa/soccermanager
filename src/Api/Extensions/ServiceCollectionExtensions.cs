@@ -1,4 +1,5 @@
 ﻿using Api.Options;
+using EntityFrameworkCore.Extensions;
 using Microsoft.AspNetCore.DataProtection;
 using StackExchange.Redis;
 using System.Security.Cryptography.X509Certificates;
@@ -8,26 +9,20 @@ namespace Api.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Configures .NET Data Protection to persist keys in Redis and encrypt them using a certificate.
+    /// Configures .NET Data Protection to persist keys in SQL Server and encrypt them using a certificate.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Verification (Redis CLI):</b><br />
-    /// To verify that .NET Data Protection keys are successfully stored and encrypted in Redis:
+    /// <b>Verification (SQL Server Management Studio):</b><br />
+    /// To verify that .NET Data Protection keys are successfully stored and encrypted in the database:
     /// </para>
     /// <para>
-    /// 1. Connect: <code>redis-cli</code> (Add -h [host] -p [port] -a [password] for remote/cloud)
+    /// 1. Query: <code>SELECT FriendlyName, Xml FROM [dbo].[DataProtectionKeys]</code>
     /// </para>
     /// <para>
-    /// 2. Locate: <code>KEYS *DataProtection*</code>
-    /// </para>
-    /// <para>
-    /// 3. Inspect: <code>LRANGE "DataProtection-Keys" 0 -1</code>
-    /// </para>
-    /// <para>
-    /// 4. Confirm Encryption:<br />
-    /// [SUCCESS]: XML contains an &lt;encryptedSecret&gt; tag with a long Base64 string.<br />
-    /// [RISK]: If &lt;masterKey&gt; is in plaintext, certificate protection is NOT active.
+    /// 2. Confirm Encryption:<br />
+    /// [SUCCESS]: The <b>Xml</b> column contains an <b>&lt;encryptedSecret&gt;</b> tag with a long Base64 string.<br />
+    /// [RISK]: If <b>&lt;masterKey&gt;</b> is visible in plaintext, certificate protection is NOT active.
     /// </para>
     /// <para>
     /// <b>Certificate Rotation:</b><br />
@@ -36,17 +31,18 @@ public static class ServiceCollectionExtensions
     /// </para>
     /// <para>
     /// <b>Why this is necessary:</b><br />
-    /// Simply replacing a certificate makes existing Redis keys unreadable instantly, 
+    /// Simply replacing a certificate makes existing database keys unreadable instantly, 
     /// causing all current user sessions (cookies) and protected data to be invalidated.
     /// </para>
     /// <para>
     /// <b>Azure Key Vault Automation:</b><br />
     /// Using [Azure Key Vault](https://learn.microsoft.com) automates this process via versionless key URIs:
-    /// <br />• <b>Key Identification:</b> AKV embeds the version ID in Redis metadata.
+    /// <br />• <b>Key Identification:</b> AKV embeds the version ID in the database metadata.
     /// <br />• <b>Automatic Decryption:</b> Nodes request specific versions from AKV for decryption.
     /// <br />• <b>No "Split-Brain":</b> AKV handles versioning transparently, allowing nodes with different configurations to decrypt each other's keys.
     /// </para>
     /// </remarks>
+
     public static IServiceCollection AddCustomDataProtection(
         this IServiceCollection services,
         string appName,
@@ -103,7 +99,7 @@ public static class ServiceCollectionExtensions
        
         services.AddDataProtection()
             .SetApplicationName(appName)
-            .PersistKeysToStackExchangeRedis(connectionMultiplexer, "DataProtection:Keys")
+            .CustomPersistKeysToDbContext()
             // The first cert in the list is the only one used for new encryption
             .ProtectKeysWithCertificate(primaryCert)
             // Allow decryption using any of the certificates in the list (Primary + Backups)

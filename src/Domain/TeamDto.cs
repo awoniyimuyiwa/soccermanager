@@ -5,7 +5,6 @@ public record TeamDto(
     string? Country,
     string? Name,
     string OwnerFirstName,
-    Guid OwnerId,
     string? OwnerLastName,
     decimal TransferBudget,
     decimal Value,

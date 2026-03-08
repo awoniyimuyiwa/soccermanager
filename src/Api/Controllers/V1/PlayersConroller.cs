@@ -1,9 +1,9 @@
 ﻿using Api.Attributes;
+using Api.Extensions;
 using Api.Models.V1;
 using Application.Services;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Controllers.V1;
@@ -14,12 +14,10 @@ namespace Api.Controllers.V1;
 [Route("v{version:apiVersion}/players")]
 public class PlayersController(
     IPlayerRepository playerRepository,
-    IPlayerService playerService,
-    UserManager<ApplicationUser> userManager) : ControllerBase
+    IPlayerService playerService) : ControllerBase
 {
     readonly IPlayerRepository _playerRepository = playerRepository;
     readonly IPlayerService _playerService = playerService;
-    readonly UserManager<ApplicationUser> _userManager = userManager;
 
     /// <summary>
     /// Get details of player with <paramref name="id"/>
@@ -43,6 +41,34 @@ public class PlayersController(
     }
 
     /// <summary>
+    /// Get scout report of player with <paramref name="id"/>
+    /// </summary>
+    /// <param name="id">Player id</param>
+    /// <param name="cancellationToken"></param>
+    /// <response code="200">When there are no errors</response>
+    /// <response code="401">When the user is not authenticated</response>
+    /// <response code="404">When the player or AI settings are not found</response>
+    [HttpGet("{id}/scout-report")]
+    [ProducesResponseType(typeof(ScoutReportModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ScoutReportModel>> ScoutReport(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+
+        var report = await _playerService.GetScoutReport(
+            id, 
+            userId,
+            cancellationToken);
+
+        return Ok(new ScoutReportModel
+        {
+            Report = report
+        });
+    }
+
+    /// <summary>
     /// Place player with <paramref name="id"/> in a team owned by the logged in user on the transfer list if the player isn't already on transfer list
     /// </summary>
     /// <param name="id">Player id</param>
@@ -60,19 +86,15 @@ public class PlayersController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-    public async Task<ActionResult<PlayerDto>> PlaceOnTranferList(
+    public async Task<ActionResult<PlayerDto>> PlaceOnTransferList(
         Guid id,
         PlaceOnTransferListModel input)
     {
-        var userId = _userManager.GetUserId(User);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
+        var userId = User.GetUserId();
 
         var transfer = await _playerService.PlaceOnTransferList(   
             id,
-            long.Parse(userId!),
+            userId,
             input);
 
         return Ok(transfer);
@@ -98,15 +120,11 @@ public class PlayersController(
         Guid id,
         UpdatePlayerModel input)
     {
-        var userId = _userManager.GetUserId(User);
-        if (userId is null)
-        {
-            return Unauthorized();
-        }
+        var userId = User.GetUserId();
 
         var player = await _playerService.Update(   
             id,
-            long.Parse(userId!),
+            userId,
             input);
 
         return Ok(player);

@@ -2,24 +2,20 @@
 
 public static class EntityExtensions
 {
-    public static TeamDto ToDto(this Team team)
+    public static AISettingDto ToDto(this AISetting aiSettings)
     {
-       return new TeamDto(
-           team.ExternalId,
-           team.Country,
-           team.Name,
-           team.Owner.FirstName,
-           team.Owner.ExternalId,
-           team.Owner.LastName,
-           team.TransferBudget,
-           team.Value,
-           team.CreatedAt,
-           team.UpdatedAt,
-           team.ConcurrencyStamp);
+        return new AISettingDto(
+            aiSettings.ExternalId,
+            aiSettings.CustomEndpoint,
+            aiSettings.Key,
+            aiSettings.Model,
+            aiSettings.Provider,
+            aiSettings.CreatedAt,
+            aiSettings.UpdatedAt);
     }
 
     public static PlayerDto ToDto(
-        this Player player, 
+        this Player player,
         DateOnly today)
     {
         return new PlayerDto(
@@ -36,6 +32,22 @@ public static class EntityExtensions
             player.CreatedAt,
             player.UpdatedAt,
             player.ConcurrencyStamp);
+    }
+
+
+    public static TeamDto ToDto(this Team team)
+    {
+       return new TeamDto(
+           team.ExternalId,
+           team.Country,
+           team.Name,
+           team.Owner.FirstName,
+           team.Owner.LastName,
+           team.TransferBudget,
+           team.Value,
+           team.CreatedAt,
+           team.UpdatedAt,
+           team.ConcurrencyStamp);
     }
 
     public static TransferDto ToDto(

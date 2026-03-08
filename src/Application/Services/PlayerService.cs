@@ -1,5 +1,6 @@
 ﻿using Application.Contracts;
 using Domain;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
@@ -7,6 +8,7 @@ namespace Application.Services;
 
 class PlayerService(
     IAuditLogManager auditLogManager,
+    IChatClientFactory chatClientFactory,
     IPlayerRepository playerRepository,
     ITransferRepository transferRepository,
     IUnitOfWork unitOfWork,
@@ -16,6 +18,7 @@ class PlayerService(
         timeProvider, 
         auditJsonSerializerOptions), IPlayerService
 {
+    readonly IChatClientFactory _chatClientFactory = chatClientFactory;
     readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITransferRepository _transferRepository = transferRepository;
     readonly IUnitOfWork _unitOfWork = unitOfWork;
@@ -83,7 +86,7 @@ class PlayerService(
             cancellationToken) ?? throw new EntityNotFoundException(nameof(Player), playerId);
 
         player.DateOfBirth = input.DateOfBirth;
-        player.Type = input.Type;
+        player.Type = (PlayerType)input.Type;
 
         if (!string.IsNullOrWhiteSpace(input.Country))
         {
@@ -105,5 +108,41 @@ class PlayerService(
         await _unitOfWork.SaveChanges(cancellationToken);
 
         return player.ToDto(DateOnly.FromDateTime(_timeProvider.GetUtcNow().Date));
+    }
+
+    public async Task<string> GetScoutReport(
+        Guid playerId,
+        long userId,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await _playerRepository.Find(
+           p => p.ExternalId == playerId,
+           false,
+           ["Transfers"],
+           cancellationToken) ?? throw new EntityNotFoundException(nameof(Player), playerId);
+
+        var chatClient = await _chatClientFactory.Create(
+            userId,
+            cancellationToken);
+
+        var askingPriceHistory = player.GetAskingPriceHistory();
+
+        var prompt = $$"""  
+          Act as a professional soccer scout. Analyze this player:
+          Name: {{player.FirstName}} {{player.LastName}}, Value: {{player.Value}}, Position: {{player.Type}}.
+          History: {{string.Join(", ", askingPriceHistory)}}.
+          Write a 2-paragraph scouting report on their market potential.  
+          """;
+
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, prompt)
+        };
+
+        var response = await chatClient.GetResponseAsync(
+            messages,
+            cancellationToken: cancellationToken);
+
+        return response.Text ?? "No report.";
     }
 }

@@ -4,7 +4,7 @@ namespace Application.Contracts;
 
 public record CreatePlayerDto : CreateUpdatePlayerDto
 {
-    public virtual decimal Value { get; set; } = Constants.InitialPlayerValue;
+    public virtual decimal Value { get; init; } = Constants.InitialPlayerValue;
 }
 
 

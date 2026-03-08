@@ -12,7 +12,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using UAParser;
 
-namespace Api;
+namespace Api.Services;
 
 /// <summary>
 /// Implements <see cref="ITicketStore"/> and <see cref="IUserSessionManager"/> to manage 

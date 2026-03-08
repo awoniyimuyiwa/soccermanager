@@ -1,12 +1,46 @@
 using Domain;
 using EntityFrameworkCore.Extensions;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace EntityFrameworkCore.Repositories;
 
 class UserRepository(ApplicationDbContext context) : IUserRepository
 {
-    private readonly ApplicationDbContext _context = context;
+    readonly ApplicationDbContext _context = context;
+
+    public async Task<ApplicationUser?> Find(
+        Expression<Func<ApplicationUser, bool>> expression,
+        bool forUpdate = false,
+        string[]? includes = null,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<ApplicationUser> query = _context.Set<ApplicationUser>();
+        if (!forUpdate) query = query.AsNoTracking();
+        if (includes != null)
+            foreach (var path in includes) query = query.Include(path);
+
+        return await query.FirstOrDefaultAsync(expression, cancellationToken);
+    }
+
+    public async Task<AISettingDto?> GetAISetting(
+        long userId, 
+        CancellationToken cancellationToken = default)
+    {
+        var dto = await _context.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.AISetting == null ? null : new AISettingDto(
+                u.AISetting.ExternalId,
+                u.AISetting.CustomEndpoint,
+                u.AISetting.Key,
+                u.AISetting.Model,
+                u.AISetting.Provider,
+                u.AISetting.CreatedAt,
+                u.AISetting.UpdatedAt))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return dto;
+    }
 
     public async Task<PaginatedList<UserDto>> Paginate(
         string searchTerm = "",
