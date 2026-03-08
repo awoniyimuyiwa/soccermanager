@@ -144,7 +144,6 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
     "GuestLimit": 20
   },
   "DataProtectionOptions": {
-    "ApplicationName": "SoccerManager",
     "CertOptions": [
     {
       "Base64": "<Base64>",
