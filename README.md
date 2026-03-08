@@ -1,6 +1,14 @@
 ﻿## Soccer Manager
+ 
+A robust, scalable **.NET 10 Web API** for managing soccer teams and player transfers, built with **Onion Architecture** and **Domain-Driven Design (DDD)** principles. 
 
-A robust, scalable .NET 10 Web API for managing soccer teams and and player transfers, built with **Onion Architecture** and **Domain-Driven Design (DDD)** principles. 
+This enterprise-grade implementation prioritizes security and modern intelligence through:
+
+* **Hardened Session Management**: Secure state handling using **Redis**, featuring hashed session IDs and encrypted tokens for all data in flight.
+  
+* **At-Rest Data Protection**: Implementation of the **.NET Data Protection** system with AES encryption keys stored in the database, ensuring sensitive assets like **LLM API keys** remain encrypted at rest.
+  
+* **AI-Native Integration**: Seamlessly connected to intelligent services via **Microsoft.Extensions.AI** for unified, provider-agnostic Large Language Model (LLM) workflows.
 
 ### 🚀 Technologies:
 
