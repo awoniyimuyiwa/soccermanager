@@ -38,7 +38,35 @@ The project is divided into four concentric layers following Onion Architecture 
 
 * **Infrastructure:** Implementation of data access (SQL Server), Identity services, and external integrations.
 
-* **Presentation (API):** Entry point, controllers, Identity API endpoint configuration, middlewares for unit of work and global exception handling, authorization etc. 
+* **Presentation (API):** Entry point, controllers, Identity API endpoint configuration, middlewares for unit of work and global exception handling, authorization etc.
+  
+```mermaid
+graph TD
+    Client((Client / Scout)) <-->|HTTPS / Encrypted Tokens| API[ASP.NET Core 10 Web API]
+    
+    subgraph Security_Infrastructure [Secure Infrastructure]
+        API <-->|Rate Limit Quotas| Redis[(Redis Cluster)]
+        API <-->|Hashed Session State| Redis
+        API <-->|AES-256 Encrypted LLM Keys| DB[(SQL Database)]
+    end
+
+    subgraph Core_Logic [Onion Architecture]
+        API --> App[Application Layer]
+        App --> Domain[Domain / DDD Layer]
+    end
+
+    subgraph Intelligence_Layer [Intelligence Layer]
+        App --> AI_Service[Scouting Report Engine]
+        AI_Service --> MSExtAI[Microsoft.Extensions.AI]
+        MSExtAI -.->|Provider Agnostic| LLM[LLM Provider]
+    end
+
+    %% Styling
+    style Redis fill:#f0f4f8,stroke:#0078d4,stroke-width:2px
+    style DB fill:#f0f4f8,stroke:#0078d4,stroke-width:2px
+    style LLM fill:#fff4ce,stroke:#ffb900,stroke-width:2px
+    style Core_Logic fill:#f3f2f1,stroke:#333
+```
 
 ### 🔑 Authentication & Authorization
 
