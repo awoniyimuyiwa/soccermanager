@@ -24,7 +24,7 @@ This enterprise-grade implementation prioritizes security and modern intelligenc
 
 * **Identity:** ASP.NET Core Identity API Endpoints (Cookie and Bearer Token auth)
 
-* **Rate Limiting:** Redis
+* **Rate Limiting, Session Management:** Redis
 
 * **Documentation:** Swagger, Scalar, OpenAPI	
 
@@ -107,7 +107,7 @@ Update the settings in `appsettings.json` or use [User Secrets](https://learn.mi
 
 * **SQL Server Database:** Update `DefaultConnection` to point to your SQL instance.
 
-* **Redis:** Update the `Redis` connection string (required for Data Protection key persistence and distributed rate limiting).
+* **Redis:** Update the `Redis` connection string (required for session management and distributed rate limiting).
 
 * **Data Protection:** Provide a Base64-encoded PFX certificate to encrypt keys at rest.
  You can find the PowerShell script for generating local test certificates in the scripts/ folder of this repository. To execute the generator, run these commands in your PowerShell terminal:
