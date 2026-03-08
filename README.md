@@ -7,6 +7,8 @@ This enterprise-grade implementation prioritizes security and modern intelligenc
 * **Hardened Session Management**: Secure state handling using **Redis**, featuring hashed session IDs and encrypted tokens for all data in flight.
   
 * **At-Rest Data Protection**: Implementation of the **.NET Data Protection** system with AES encryption keys stored in the database, ensuring sensitive assets like **LLM API keys** remain encrypted at rest.
+
+* **Distributed Rate Limiting**: Protection against API abuse across multiple instances using **Redis-backed rate limiting**, ensuring consistent throughput policies and global quota enforcement.
   
 * **AI-Native Integration**: Seamlessly connected to intelligent services via **Microsoft.Extensions.AI** for unified, provider-agnostic Large Language Model (LLM) workflows.
 
@@ -135,14 +137,6 @@ Cleanup: After 90 days (default key lifetime), remove the old certificate from t
 > [!IMPORTANT]
 > **Why we don't swap Primary immediately:**
 > Making a new cert Primary straight away creates a "race condition." If Server A generates a new key with the new cert, but Server B hasn't updated yet, Server B will fail because it cannot decrypt the new key. Adding it as a secondary first "teaches" all nodes how to read the new cert before any node starts writing with it.
-
-**🔍 Verification (Redis CLI)**
-
-To verify that keys are successfully stored and encrypted:
-Locate the Key: redis-cli KEYS *DataProtection*
-Inspect Content: redis-cli LRANGE "DataProtection-Keys" 0 -1
-Check Encryption: Look for the <encryptedSecret> tag in the XML. If you see <masterKey> in plaintext, encryption is NOT active, and keys are vulnerable if Redis is breached.
-
 
 3) **Run Migrations:**
 
