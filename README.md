@@ -91,6 +91,8 @@ This project uses the native .NET Identity API Endpoints for a streamlined auth 
 
 * Visual Studio 2022 (v17.12+)
 
+* Redis
+
 ### Installation
 
 1) **Clone the repository:**
