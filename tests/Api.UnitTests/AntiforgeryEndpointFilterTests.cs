@@ -22,7 +22,7 @@ public class AntiforgeryEndpointFilterTests
     public async Task OnInvokeAsync_BearerAuthenticationIsNotUsedAndValidationFails_ReturnsBadRequestResult(string method)
     {
         // Arrange
-        var (endpointFiterInvocationContext, 
+        var (endpointFilterInvocationContext, 
             antiforgeryMock) = GetMocks(
             method, 
             true);
@@ -35,7 +35,7 @@ public class AntiforgeryEndpointFilterTests
         var endpointFilter = new AntiforgeryEndpointFilter(antiforgeryMock.Object);
      
         // Act
-        var result = await endpointFilter.InvokeAsync(endpointFiterInvocationContext, next);
+        var result = await endpointFilter.InvokeAsync(endpointFilterInvocationContext, next);
 
         // Assert
         Assert.NotNull(result);
@@ -59,10 +59,10 @@ public class AntiforgeryEndpointFilterTests
 
         var antiforgeryMock = new Mock<IAntiforgery>();
 
-        var endpointFiterInvocationContext = new DefaultEndpointFilterInvocationContext(httpContext);
+        var endpointFilterInvocationContext = new DefaultEndpointFilterInvocationContext(httpContext);
         
         return (
-            endpointFiterInvocationContext,
+            endpointFilterInvocationContext,
             antiforgeryMock);
     }
 }

@@ -1,7 +1,10 @@
-﻿using Microsoft.AspNetCore.DataProtection;
+﻿using Api.Models.V1;
+using Domain;
+using Microsoft.AspNetCore.DataProtection;
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace Api.Extensions;
 
@@ -125,6 +128,36 @@ public static class StringExtensions
         {
             // Fallback if the key cannot be decrypted (e.g., after a master key rotation)
             return mask;
+        }
+    }
+
+    /// <summary>
+    /// Decrypts and deserializes a protected string into a <see cref="PageCursor"/>.
+    /// </summary>
+    /// <param name="protectedText">The encrypted cursor string from the client.</param>
+    /// <param name="protector">The data protector used for decryption.</param>
+    /// <param name="purpose">The unique purpose string for cryptographic isolation.</param>
+    /// <returns>A <see cref="PageCursor"/> instance, or a default cursor if the input is invalid or empty.</returns>
+    public static PageCursor? ToPageCursor(
+        this string? protectedText,
+        IDataProtector protector,
+        string? purpose)
+    {
+        if (string.IsNullOrWhiteSpace(protectedText))
+        {
+            return null;
+        }
+            
+        var json = protectedText.Unprotect(protector, purpose);
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+
+        try
+        {
+            return JsonSerializer.Deserialize<PageCursor>(json);
+        }
+        catch (Exception ex) when (ex is CryptographicException or JsonException)
+        {
+            return null;
         }
     }
 }

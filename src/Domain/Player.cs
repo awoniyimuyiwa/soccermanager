@@ -82,6 +82,13 @@ public class Player : AuditedEntity, IHasConcurrencyStamp
     }
 }
 
+/// <summary>
+/// Defines the tactical position or role of a player on the field.
+/// </summary>
+/// <remarks>
+/// IMPORTANT: Always append new members to the end of the list to maintain 
+/// database compatibility and prevent value shifts for existing records.
+/// </remarks>
 public enum PlayerType
 {
     Goalkeeper,

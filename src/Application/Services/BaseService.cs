@@ -3,34 +3,34 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
-namespace Application.Services
+namespace Application.Services;
+
+abstract class BaseService(
+    IAuditLogManager auditLogManager,
+    TimeProvider timeProvider,
+    [FromKeyedServices(Constants.AuditLogJsonSerializationOptionsName)] JsonSerializerOptions auditJsonSerializerOptions)
 {
-    abstract class BaseService(
-        IAuditLogManager auditLogManager,
-        TimeProvider timeProvider,
-        [FromKeyedServices(Constants.AuditLogJsonSerializationOptionsName)] JsonSerializerOptions auditJsonSerializerOptions)
+    readonly IAuditLogManager _auditLogManager = auditLogManager;
+    readonly JsonSerializerOptions _auditJsonSerializerOptions = auditJsonSerializerOptions;
+    
+    protected readonly TimeProvider _timeProvider = timeProvider;
+
+    protected void LogAction(
+        object? parameters = null, 
+        [CallerMemberName] string methodName = "")
     {
-        readonly IAuditLogManager _auditLogManager = auditLogManager;
-        readonly TimeProvider _timeProvider = timeProvider;
-        readonly JsonSerializerOptions _auditJsonSerializerOptions = auditJsonSerializerOptions;
+        if (_auditLogManager.Current is null) { return; }
 
-        protected void LogAction(
-            object? parameters = null, 
-            [CallerMemberName] string methodName = "")
+        var jsonParams = parameters != null
+            ? JsonSerializer.Serialize(parameters, _auditJsonSerializerOptions)
+            : null;
+
+        _auditLogManager.Current.AuditLogActions.Add(new AuditLogAction
         {
-            if (_auditLogManager.Current is null) { return; }
-
-            var jsonParams = parameters != null
-                ? JsonSerializer.Serialize(parameters, _auditJsonSerializerOptions)
-                : null;
-
-            _auditLogManager.Current.AuditLogActions.Add(new AuditLogAction
-            {
-                ExecutionTime = _timeProvider.GetUtcNow(),
-                MethodName = methodName,
-                Parameters = jsonParams,
-                ServiceName = GetType().Name
-            });
-        }
+            ExecutionTime = _timeProvider.GetUtcNow(),
+            MethodName = methodName,
+            Parameters = jsonParams,
+            ServiceName = GetType().Name
+        });
     }
 }

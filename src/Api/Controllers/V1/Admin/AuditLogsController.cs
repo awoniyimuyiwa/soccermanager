@@ -114,7 +114,9 @@ public class AuditLogsController(
         return Ok(new
         {
             Details = !string.IsNullOrWhiteSpace(dto.Details)
-            ? JsonSerializer.Deserialize<object>(dto.Details) : null,
+            ? JsonSerializer.Deserialize<object>(
+                dto.Details, 
+                JsonSerializerOptions.Web) : null,
             dto.LastRunAt,
             dto.TotalInLastRun,
             dto.Total

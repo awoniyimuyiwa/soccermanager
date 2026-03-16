@@ -26,6 +26,8 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
     public DbSet<AuditLogAction> AuditLogActions  => Set<AuditLogAction>();
 
+    public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
+
     public DbSet<BackgroundServiceStat> BackgroundServiceStats => Set<BackgroundServiceStat>();
 
     /// <summary>
@@ -114,7 +116,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
         modelBuilder.Entity<AuditLog>(auditLog =>
         {
             auditLog.Property(al => al.BrowserInfo).HasMaxLength(Domain.Constants.StringMaxLength);
-            auditLog.Property(al => al.Exception).HasMaxLength(Domain.Constants.MaxAuditLogStringLength);
+            auditLog.Property(al => al.Exception).HasMaxLength(Domain.Constants.MaxExceptionLength);
             auditLog.Property(al => al.HttpMethod).HasMaxLength(Domain.Constants.StringMaxLength);
             auditLog.Property(al => al.IpAddress).HasMaxLength(45);
             auditLog.Property(al => al.RequestId).HasMaxLength(Domain.Constants.StringMaxLength);
@@ -129,6 +131,22 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             .WithOne()
             .HasForeignKey(ec => ec.AuditLogId)
             .IsRequired();
+        });
+
+        modelBuilder.Entity<BackgroundJob>(backgroundJob =>
+        {
+            backgroundJob.Property(bj => bj.ConcurrencyStamp).HasMaxLength(Domain.Constants.StringMaxLength);
+            backgroundJob.Property(bj => bj.Error).HasMaxLength(Domain.Constants.MaxExceptionLength);
+
+            // Worker Polling
+            backgroundJob.HasIndex(bj => new { bj.Status, bj.Priority, bj.ScheduledFor })
+             .HasFilter($"[{nameof(BackgroundJob.Status)}] = {(int)BackgroundJobStatus.Queued}");
+
+            // Cleanup Task
+            backgroundJob.HasIndex(bj => new { bj.Status, bj.UpdatedAt });
+
+            // General Filtering
+            backgroundJob.HasIndex(bj => bj.Type);
         });
 
         modelBuilder.Entity<BackgroundServiceStat>(backgroundServiceStat =>

@@ -9,10 +9,10 @@ class BackgroundServiceStatRepository(
     TimeProvider timeProvider) : BaseRepository<BackgroundServiceStat>(context), IBackgroundServiceStatRepository
 {
     public async Task<BackgroundServiceStat> AddOrUpdate(
-       string? details,
-       int total,
-       BackgroundServiceStatType type,
-       CancellationToken cancellationToken = default)
+        string? details,
+        int total,
+        BackgroundServiceStatType type,
+        CancellationToken cancellationToken = default)
     {
         var stat = await Find(
             bss => bss.Type == type,

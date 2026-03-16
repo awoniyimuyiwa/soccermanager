@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<IBackgroundJobRepository, BackgroundJobRepository>();
         services.AddScoped<IBackgroundServiceStatRepository, BackgroundServiceStatRepository>();
         services.AddScoped<IPlayerRepository, PlayerRepository>();
         services.AddScoped<ITeamRepository, TeamRepository>();
