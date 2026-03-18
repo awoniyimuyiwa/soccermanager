@@ -52,6 +52,11 @@ builder.Services.AddOptions<AuditLogOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+builder.Services.AddOptions<BackgroundJobOptions>()
+    .BindConfiguration(BackgroundJobOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 builder.Services.AddOptions<CustomDataProtectionOptions>()
     .Bind(builder.Configuration.GetSection(CustomDataProtectionOptions.SectionName))
     .ValidateDataAnnotations()
@@ -127,7 +132,7 @@ builder.Services.AddApiVersioning(options =>
     // Configure the format of the version in the route URL
     options.GroupNameFormat = "'v'VVV";
     options.SubstituteApiVersionInUrl = true;
-});
+}); 
 
 builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOptionsName, new JsonSerializerOptions
 {
@@ -202,6 +207,11 @@ builder.Services.AddSingleton<AuditLogCleanupTrigger>();
 builder.Services.AddSingleton<IAuditLogCleanupTrigger>(sp => sp.GetRequiredService<AuditLogCleanupTrigger>());
 builder.Services.AddSingleton<IAuditLogCleanupReader>(sp => sp.GetRequiredService<AuditLogCleanupTrigger>());
 builder.Services.AddHostedService<AuditLogCleanupService>();
+
+builder.Services.AddSingleton<BackgroundJobTrigger>();
+builder.Services.AddSingleton<IBackgroundJobTrigger>(sp => sp.GetRequiredService<BackgroundJobTrigger>());
+builder.Services.AddSingleton<IBackgroundJobReader>(sp => sp.GetRequiredService<BackgroundJobTrigger>());
+builder.Services.AddHostedService<BackgroundJobService>();
 
 builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddRateLimiter(rateLimiterOptions =>

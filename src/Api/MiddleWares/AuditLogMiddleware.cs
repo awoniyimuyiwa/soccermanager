@@ -1,4 +1,5 @@
 ﻿using Api.Attributes;
+using Application.Extensions;
 using Domain;
 using System.Net;
 using System.Net.Sockets;
@@ -30,14 +31,9 @@ public class AuditLogMiddleware(RequestDelegate next)
             await _next(context);
             auditLogManager.Current!.StatusCode = context.Response.StatusCode;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            var exception = ex.ToString();
-            auditLogManager.Current!.Exception = exception.Length > Domain.Constants.MaxAuditLogStringLength
-                ? string.Concat(
-                    exception.AsSpan(0, Domain.Constants.MaxAuditLogStringLength - Domain.Constants.TruncationIndicator.Length), 
-                    Domain.Constants.TruncationIndicator)
-                : exception;
+            auditLogManager.Current!.Exception = exception.Trim();
             auditLogManager.Current!.StatusCode = (int)HttpStatusCode.InternalServerError;
             throw;
         }

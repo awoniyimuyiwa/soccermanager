@@ -29,7 +29,7 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
         catch (DbUpdateConcurrencyException ex)
         {
             await RollbackTransaction(cancellationToken);
-            HandleConcurrenyException(ex);
+            HandleConcurrencyException(ex);
             throw;
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx)
@@ -66,7 +66,7 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            HandleConcurrenyException(ex);
+            HandleConcurrencyException(ex);
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx)
         {
@@ -91,7 +91,7 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
         }
     }
 
-    private static void HandleConcurrenyException(DbUpdateConcurrencyException ex)
+    private static void HandleConcurrencyException(DbUpdateConcurrencyException ex)
     {
         var entry = ex.Entries[0];
         var entityName = entry.Entity.GetType().Name;

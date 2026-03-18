@@ -36,7 +36,13 @@ public class PlayerValue : AuditedEntity
     }
 }
 
-
+/// <summary>
+/// Specifies the origin or category of a player's valuation.
+/// </summary>
+/// <remarks>
+/// IMPORTANT: Always append new members to the end of the list to maintain 
+/// database compatibility and prevent value shifts for existing records.
+/// </remarks>
 public enum PlayerValueType
 {
     Initial,
