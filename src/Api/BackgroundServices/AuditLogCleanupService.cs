@@ -10,16 +10,20 @@ using System.Threading.Channels;
 namespace Api.BackgroundServices;
 
 /// <summary>
-/// Deletes expired audit logs based on configured retention policies.
-/// Runs automatically at 02:00 UTC or via manual trigger.
+/// A hosted worker that orchestrates the deletion of expired audit logs based on retention policies.
 /// </summary>
-/// <param name="auditLogCleanupReader">Accesses logs for cleanup.</param>
-/// <param name="distributedLockProvider">Prevents concurrent cleanup executions.</param>
-/// <param name="logger">Telemetry and error logger.</param>
-/// <param name="optionsMonitor">Configuration settings for retention.</param>
-/// <param name="scopeFactory">Service scope factory for DB operations.</param>
-/// <param name="timeProvider">System time abstraction.</param>
-/// <param name="resiliencePipelineProvider">Retry and resilience logic provider.</param>
+/// <remarks>
+/// This service is triggered via <see cref="IAuditLogCleanupReader"/> signals, typically scheduled 
+/// for 02:00 UTC or manually initiated. It utilizes <see cref="IDistributedLockProvider"/> to ensure 
+/// only one cleanup instance runs across a distributed environment.
+/// </remarks>
+/// <param name="auditLogCleanupReader">Provides a signaling mechanism to trigger the cleanup process.</param>
+/// <param name="distributedLockProvider">Ensures mutual exclusion to prevent concurrent cleanup executions.</param>
+/// <param name="logger">Handles telemetry, audit trails, and error reporting.</param>
+/// <param name="optionsMonitor">Provides access to dynamic configuration for log retention settings.</param>
+/// <param name="scopeFactory">Creates dependency scopes for database and cleanup operations.</param>
+/// <param name="resiliencePipelineProvider">Applies transient fault handling and retry policies for database operations.</param>
+/// <param name="timeProvider">An abstraction for system time used to calculate expiration thresholds.</param>
 public class AuditLogCleanupService(
     IAuditLogCleanupReader auditLogCleanupReader,
     IDistributedLockProvider distributedLockProvider,
@@ -56,12 +60,12 @@ public class AuditLogCleanupService(
                     var completed = await Task.WhenAny(timerTask, manualTriggerTask);
                    
                     // If the manual trigger woke the thread up, consume the message to "reset" the door
-                    if (completed == manualTriggerTask && manualTriggerTask.Result)
+                    if (completed == manualTriggerTask && await manualTriggerTask)
                     {
                         auditLogCleanupReader.Reader.TryRead(out _);
                     }
                        
-                    // If thread was woken by a trigger, check the distibuted lock again
+                    // If thread was woken by a trigger, check the distributed lock again
                 }
 
                 await using var handle = await _resiliencePipeline.ExecuteAsync(async resilienceCancellationToken =>
@@ -81,7 +85,7 @@ public class AuditLogCleanupService(
                 }
                 else if (shouldRunImmediately) 
                 {
-                    // Small safety delay if we were in a 'shouldRunImmediately' state (e.g it's 3AM but he 2AM run hasn't happened
+                    // Small safety delay if we were in a 'shouldRunImmediately' state (e.g it's 3AM but the 2AM run hasn't happened)
                     await Task.Delay(TimeSpan.FromMinutes(1), serviceCancellationToken);
                 }
             }
@@ -91,6 +95,7 @@ public class AuditLogCleanupService(
                 {
                     logger.LogInformation("Audit log clean up background service is shutting down.");
                 }
+                break;
             }
             catch (Exception ex)
             {
@@ -144,7 +149,8 @@ public class AuditLogCleanupService(
                     new
                     {
                         cutoff
-                    }),
+                    },
+                    JsonSerializerOptions.Web),
                 deleted,
                 BackgroundServiceStatType.AuditLogCleanUp,
                 cancellationToken);

@@ -20,8 +20,9 @@ public class Constants
 
     public const int MaxPlayerValuePercentageIncrease = 100;
 
-    public const int MinPageSize = 1;
     public const int MinPageNumber = 1;
+    public const int MinPageSize = 1;
+    public const int MaxRowsToSkip = 50000;
     public const int MinPlayerAge = 18;
     public const decimal MinPlayerAskingPrice = 0;
     public const decimal MinPlayerValue = 0;
@@ -31,7 +32,7 @@ public class Constants
     public const int MaxPageSize = 100;
     public const int MaxPlayerAge = 40;
 
-    public const int MaxAuditLogStringLength = 2000;
+    public const int MaxExceptionLength = 2000;
 
     public const string PlayerAlreadyOnTransferListErrorMessage = "Player is already on transfer list.";
 
