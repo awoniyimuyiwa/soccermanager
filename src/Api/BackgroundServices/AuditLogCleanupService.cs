@@ -121,12 +121,15 @@ public class AuditLogCleanupService(
             {
                 logger.LogInformation("Starting audit log cleanup (Retention: {Minutes} minutes)...", options.RetentionMinutes);
             }
-           
+
+            // Resolve scoped dependencies required for the current execution cycle.
             var unitOfWork = serviceProvider.GetRequiredService<IUnitOfWork>();
             var auditLogRepository = serviceProvider.GetRequiredService<IAuditLogRepository>();
+
             var deleted = 0;
             var deletedInBatch = 0;
             var cutoff = timeProvider.GetUtcNow().AddMinutes(-options.RetentionMinutes);
+
             await unitOfWork.BeginTransaction(cancellationToken);
             
             do

@@ -1,4 +1,4 @@
-﻿namespace Domain;
+﻿namespace Domain.BackgroundJobs;
 
 public record BackgroundJobDto(
     Guid Id,
@@ -8,13 +8,15 @@ public record BackgroundJobDto(
     string Payload,
     BackgroundJobPriority Priority,
     DateTimeOffset ScheduledFor,
+    Guid? SourceId,
     BackgroundJobStatus Status,
+    string? TraceId,
     BackgroundJobType Type,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
     string? ConcurrencyStamp = null);
 
-public record BackgroundJobDtoWithInternalId(
+public record InternalBackgroundJobDto(
     long InternalId,
     Guid Id,
     uint Attempts,
@@ -23,7 +25,9 @@ public record BackgroundJobDtoWithInternalId(
     string Payload,
     BackgroundJobPriority Priority,
     DateTimeOffset ScheduledFor,
+    Guid? SourceId,
     BackgroundJobStatus Status,
+    string? TraceId,
     BackgroundJobType Type,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
@@ -35,9 +39,10 @@ public record BackgroundJobDtoWithInternalId(
         Payload,
         Priority,
         ScheduledFor,
+        SourceId,
         Status,
+        TraceId,
         Type,
         CreatedAt,
         UpdatedAt,
         ConcurrencyStamp);
-

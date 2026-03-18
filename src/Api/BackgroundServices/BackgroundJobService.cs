@@ -1,10 +1,13 @@
 ﻿using Api.Options;
 using Application.Contracts;
+using Application.Contracts.BackgroundJobs;
 using Domain;
+using Domain.BackgroundJobs;
 using Medallion.Threading;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Registry;
+using System.Diagnostics;
 using System.Threading.Channels;
 
 namespace Api.BackgroundServices;
@@ -17,20 +20,22 @@ namespace Api.BackgroundServices;
 /// It ensures high availability and consistency by using <see cref="IDistributedLockProvider"/> to prevent 
 /// concurrent execution across multiple instances.
 /// </remarks>
+/// <param name="activityProvider">Provides the <see cref="ActivitySource"/> for distributed tracing and observability.</param>
 /// <param name="backgroundJobReader">Provides a signaling mechanism to trigger job processing.</param>
 /// <param name="distributedLockProvider">Ensures mutual exclusion across distributed nodes.</param>
 /// <param name="logger">Handles telemetry, audit trails, and error reporting.</param>
-/// <param name="optionsMonitor"></param>
-/// <param name="scopeFactory">Creates dependency scopes for database and handler operations.</param>
+/// <param name="optionsMonitor">Provides access to the latest <see cref="BackgroundJobOptions"/> with support for runtime updates.</param>
 /// <param name="resiliencePipelineProvider">Applies transient fault handling and retry policies.</param>
-/// <param name="timeProvider">An abstraction for system time used to calculate expiration thresholds.</param>
+/// <param name="scopeFactory">Creates dependency scopes for database and handler operations.</param>
+/// <param name="timeProvider">An abstraction for time used to calculate scheduling, timeouts, and backoff logic.</param>
 public class BackgroundJobService(
+    IActivityProvider activityProvider,
     IBackgroundJobReader backgroundJobReader,
     IDistributedLockProvider distributedLockProvider,
     ILogger<BackgroundJobService> logger,
     IOptionsMonitor<BackgroundJobOptions> optionsMonitor,
-    IServiceScopeFactory scopeFactory,
     ResiliencePipelineProvider<string> resiliencePipelineProvider,
+    IServiceScopeFactory scopeFactory,
     TimeProvider timeProvider) : BackgroundService
 {
     readonly ResiliencePipeline<IDistributedSynchronizationHandle?> _resiliencePipeline = resiliencePipelineProvider.GetPipeline<IDistributedSynchronizationHandle?>(Constants.DistributedLockResiliencePolicyName);
@@ -45,14 +50,21 @@ public class BackgroundJobService(
         {
             try
             {
+                // Use a linked CTS to ensure only one active waiter on the PeriodicTimer at a time.
+                // This prevents InvalidOperationException if the manual trigger completes first.
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(serviceCancellationToken);
+
                 using var scope = scopeFactory.CreateScope();
 
                 // Create the tasks for the two "Wake Up" conditions
-                var timerTask = timer.WaitForNextTickAsync(serviceCancellationToken).AsTask();
-                var manualTriggerTask = backgroundJobReader.Reader.WaitToReadAsync(serviceCancellationToken).AsTask();
+                var timerTask = timer.WaitForNextTickAsync(cts.Token).AsTask();
+                var manualTriggerTask = backgroundJobReader.Reader.WaitToReadAsync(cts.Token).AsTask();
 
                 // Execution pauses here until ONE of these completes
                 var completed = await Task.WhenAny(timerTask, manualTriggerTask);
+
+                // Cancel the "loser" task so the timer/channel is released
+                await cts.CancelAsync();
 
                 // If the manual trigger woke the thread up, consume the message to "reset" the door
                 if (completed == manualTriggerTask && await manualTriggerTask)
@@ -97,28 +109,32 @@ public class BackgroundJobService(
         IServiceProvider serviceProvider,
         CancellationToken cancellationToken)
     {
+        using var activity = activityProvider.StartActivity("BackgroundJob.Orchestrator", ActivityKind.Internal);
+
         if (logger.IsEnabled(LogLevel.Information))
         {
             logger.LogInformation("Starting background job processing");
         }
 
+        var options = optionsMonitor.CurrentValue;
+
+        // Resolve scoped dependencies required for the current execution cycle.
         var unitOfWork = serviceProvider.GetRequiredService<IUnitOfWork>();
         var backgroundServiceStatRepository = serviceProvider.GetRequiredService<IBackgroundServiceStatRepository>();
+        var backgroundJobRepository = serviceProvider.GetRequiredService<IBackgroundJobRepository>();
+        var backgroundJobRunner = serviceProvider.GetRequiredService<IBackgroundJobRunner>();
         var processed = 0;
 
         try
         {
-            var options = optionsMonitor.CurrentValue;
-            var backgroundJobRepository = serviceProvider.GetRequiredService<IBackgroundJobRepository>();
-            var backgroundJobRunner = serviceProvider.GetRequiredService<IBackgroundJobRunner>();
-
+ 
             if (logger.IsEnabled(LogLevel.Information))
             {
                 logger.LogInformation("Requeuing stuck jobs");
             }
             var requeuedCount = await backgroundJobRepository.RequeueStuck(
-                [],
-                (uint)options.StuckJobThresholdMinutes,
+                new RequeueBackgroundJobFilterDto(
+                    UpdatedTo: timeProvider.GetUtcNow().AddMinutes(-options.StuckJobThresholdMinutes)),
                 cancellationToken);
             if (logger.IsEnabled(LogLevel.Information))
             {
@@ -159,6 +175,7 @@ public class BackgroundJobService(
                 await Task.Delay(100, cancellationToken); // Small delay to prevent overloading the database
             } while (processedInBatch > 0 && !cancellationToken.IsCancellationRequested);
 
+            activity?.SetTag("jobs.total_processed", processed);
             if (logger.IsEnabled(LogLevel.Information))
             {
                 logger.LogInformation("Background job processing succeeded (Background jobs processed in current run: {processed}.", processed);
@@ -166,6 +183,8 @@ public class BackgroundJobService(
         }
         catch (Exception ex)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.AddException(ex);
             logger.LogError(ex, "Background job processing failed!");
         }
         finally

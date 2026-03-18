@@ -1,4 +1,4 @@
-namespace Application.Contracts;
+namespace Application.Contracts.BackgroundJobs;
 
 /// <summary>
 /// Base Record for Background Job Handler Data Transfer Objects.

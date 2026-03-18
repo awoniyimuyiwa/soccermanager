@@ -22,7 +22,6 @@ class PlayerService(
     readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITransferRepository _transferRepository = transferRepository;
     readonly IUnitOfWork _unitOfWork = unitOfWork;
-    readonly TimeProvider _timeProvider = timeProvider;
 
     public async Task<TransferDto> PlaceOnTransferList(
         Guid playerId,

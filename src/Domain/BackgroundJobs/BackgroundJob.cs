@@ -1,4 +1,4 @@
-﻿namespace Domain;
+﻿namespace Domain.BackgroundJobs;
 
 public class BackgroundJob : AuditedEntity, IHasConcurrencyStamp
 {
@@ -14,7 +14,11 @@ public class BackgroundJob : AuditedEntity, IHasConcurrencyStamp
 
     public DateTimeOffset ScheduledFor { get; set; }
 
+    public Guid? SourceId { get; set; }
+
     public BackgroundJobStatus Status { get; set; }
+
+    public string? TraceId { get; set; }
 
     public BackgroundJobType Type { get; set; }
 

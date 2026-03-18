@@ -24,12 +24,16 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Polly;
 using Polly.Retry;
 using Polly.Timeout;
 using Scalar.AspNetCore;
 using StackExchange.Redis;
 using StackExchange.Redis.KeyspaceIsolation;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -304,6 +308,41 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = Api.Constants.AntiforgeryHeaderName;
 });
 
+builder.Services.AddSingleton<IActivityProvider>(new ActivityProvider(appName));
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.IncludeFormattedMessage = true;
+    logging.IncludeScopes = true;
+    logging.ParseStateValues = true; // Makes log placeholders searchable in Jaeger/Aspire
+    logging.AddOtlpExporter(); // Sends logs to the same OTLP endpoint
+});
+builder.Services.AddOpenTelemetry() 
+    .ConfigureResource(resource => resource.AddService(serviceName: appName))
+    .WithTracing(tracing => tracing    
+    .AddSource(appName) // Everything internal shows up here    
+    .AddAspNetCoreInstrumentation()  // External web stuff    
+    .AddHttpClientInstrumentation() // External outgoing stuff
+    .AddSqlClientInstrumentation(options =>
+     {
+         options.RecordException = true;
+
+         if (builder.Environment.IsDevelopment())
+         {
+             options.EnrichWithSqlCommand = (activity, command) =>
+             {
+                 if (command is System.Data.Common.DbCommand dbCommand)
+                 {
+                     activity.SetTag("db.statement", dbCommand.CommandText);
+                 }
+             };
+         }
+     })
+     .AddRedisInstrumentation(prefixedMultiplexer, options =>
+     {
+         // Captures Redis commands (SET, GET, etc.)
+         options.SetVerboseDatabaseStatements = builder.Environment.IsDevelopment();
+     }).AddOtlpExporter());
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -352,6 +391,15 @@ app.UseWhen(
         );
     }
 );
+
+app.Use(async (context, next) =>
+{
+    // Expose the W3C Trace ID in the response header to correlate client requests with server-side telemetry.
+    var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
+    context.Response.Headers.Append("X-Trace-ID", traceId);
+    await next();
+});
+
 
 /* 
  * CORS is currently disabled because the Frontend and API should ideally share the same domain.

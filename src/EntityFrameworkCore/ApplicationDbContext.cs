@@ -1,4 +1,5 @@
 using Domain;
+using Domain.BackgroundJobs;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -137,6 +138,8 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
         {
             backgroundJob.Property(bj => bj.ConcurrencyStamp).HasMaxLength(Domain.Constants.StringMaxLength);
             backgroundJob.Property(bj => bj.Error).HasMaxLength(Domain.Constants.MaxExceptionLength);
+            backgroundJob.Property(bj => bj.SourceId).HasMaxLength(Domain.Constants.StringMaxLength);
+            backgroundJob.Property(bj => bj.TraceId).HasMaxLength(Domain.Constants.StringMaxLength);
 
             // Worker Polling
             backgroundJob.HasIndex(bj => new { bj.Status, bj.Priority, bj.ScheduledFor })

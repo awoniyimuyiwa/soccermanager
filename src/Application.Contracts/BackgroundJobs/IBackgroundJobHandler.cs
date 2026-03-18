@@ -1,4 +1,4 @@
-﻿namespace Application.Contracts;
+﻿namespace Application.Contracts.BackgroundJobs;
 
 public interface IBackgroundJobHandler
 {
