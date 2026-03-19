@@ -2,6 +2,7 @@
 using Api.Extensions;
 using Api.Models.V1;
 using Domain;
+using Domain.BackgroundJobs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
@@ -33,7 +34,7 @@ public class BackgroundJobsController(
     [HttpGet]
     [ProducesResponseType(typeof(PaginatedList<BackgroundJobDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaginatedList<BackgroundJobDto>>> Index(
-        [FromQuery] BackgroundJobFilterDto filter,
+        [FromQuery] GetBackgroundJobFilterDto? filter,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
         [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
@@ -54,7 +55,7 @@ public class BackgroundJobsController(
     [HttpGet("stream")]
     [ProducesResponseType(typeof(CursorListModel<BackgroundJobDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<CursorListModel<BackgroundJobDto>>> Stream(
-        [FromQuery] BackgroundJobFilterDto filter,
+        [FromQuery] GetBackgroundJobFilterDto? filter,
         [FromQuery] string? cursor = null)
     {
         var pageCursor = cursor.ToPageCursor(_dataProtector.Value, null);
@@ -113,16 +114,16 @@ public class BackgroundJobsController(
     /// <summary>
     /// Re-activates background jobs that have reached their maximum retry limit or encountered a terminal failure.
     /// </summary>
-    /// <param name="ids">Optional array of specific job IDs to retry; if empty, all failed jobs are re-queued.</param>
+    /// <param name="filter">Filtering criteria for jobs.</param>
     /// <param name="cancellationToken"></param>
     /// <response code="200">When there are no errors</response>
-    [HttpPost("requeue-failed")]
-    public async Task<IActionResult> RequeueFailed(
-        [FromBody] Guid[] ids,
+    [HttpPost("requeue")]
+    public async Task<IActionResult> Requeue(
+        [FromQuery] RequeueBackgroundJobFilterDto? filter,
         CancellationToken cancellationToken)
     {
         var count = await _backgroundJobRepository.RequeueFailed(
-            ids,
+            filter,
             cancellationToken);
 
         if (count > 0)
@@ -132,33 +133,7 @@ public class BackgroundJobsController(
 
         return Ok($"Requeued jobs: {count}");
     }
-
-    /// <summary>
-    /// Resets background jobs that have been stuck in an 'InProgress' state for too long.
-    /// </summary>
-    /// <param name="ids">Optional array of specific job IDs to reset; if empty, all qualifying stuck jobs are processed.</param>
-    /// <param name="afterMinutes">The threshold in minutes after which a job is considered stuck (default is 30).</param>
-    /// <param name="cancellationToken"></param>
-    /// <response code="200">When there are no errors</response>
-    [HttpPost("requeue-stuck")]
-    public async Task<IActionResult> RequeueStuck(
-        [FromBody] Guid[] ids,
-        [FromQuery] uint afterMinutes = 30,
-        CancellationToken cancellationToken = default)
-    {
-        var count = await _backgroundJobRepository.RequeueStuck(
-           ids,
-           afterMinutes,
-           cancellationToken);
-
-        if (count > 0)
-        {
-            _backgroundJobTrigger.Trigger();
-        }
-
-        return Ok($"Requeued jobs: {count}");
-    }
-
+  
     /// <summary>
     /// Get background job processing status
     /// </summary>

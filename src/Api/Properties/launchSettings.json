@@ -3,7 +3,10 @@
     "http": {
       "commandName": "Project",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "OTEL_SERVICE_NAME": "SoccerManager",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+        "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"
       },
       "dotnetRunMessages": true,
       "applicationUrl": "http://localhost:5246"
@@ -11,7 +14,10 @@
     "https": {
       "commandName": "Project",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "OTEL_SERVICE_NAME": "SoccerManager",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+        "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"
       },
       "dotnetRunMessages": true,
       "applicationUrl": "https://localhost:7187;http://localhost:5246"
@@ -21,7 +27,10 @@
       "launchBrowser": true,
       "launchUrl": "",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "OTEL_SERVICE_NAME": "SoccerManager",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+        "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"
       }
     }
   },

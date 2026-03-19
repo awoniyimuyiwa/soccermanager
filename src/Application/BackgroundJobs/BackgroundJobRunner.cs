@@ -1,18 +1,23 @@
 ﻿using Application.Contracts;
+using Application.Contracts.BackgroundJobs;
 using Application.Extensions;
 using Domain;
+using Domain.BackgroundJobs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
-namespace Application.Services;
+namespace Application.BackgroundJobs;
 
 public class BackgroundJobRunner(
+    IActivityProvider activityProvider,
     IServiceScopeFactory scopeFactory,
     ILogger<BackgroundJobRunner> logger) : IBackgroundJobRunner
 {
+    readonly IActivityProvider _activityProvider = activityProvider;
     readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     readonly ILogger<BackgroundJobRunner> _logger = logger;
-
+  
     public async Task Run(
         long id, 
         CancellationToken cancellationToken = default)
@@ -22,14 +27,36 @@ public class BackgroundJobRunner(
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         var backgroundJobRepository = scope.ServiceProvider.GetRequiredService<IBackgroundJobRepository>();
 
+        BackgroundJob? backgroundJob;
         try
         {
-            var backgroundJob = await backgroundJobRepository.Find(
+            backgroundJob = await backgroundJobRepository.Find(
                 bj => bj.Id == id,
                 true,
                 cancellationToken: cancellationToken);
-            if (backgroundJob is null) { return; }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch background job {JobId}", id);
+            return;
+        }
 
+        if (backgroundJob is null) { return; }
+    
+        using var activity = _activityProvider.StartActivity(   
+            $"Process {backgroundJob.Type}",
+            ActivityKind.Consumer,
+            backgroundJob.TraceId);
+
+        activity?.SetTag("code.namespace", nameof(BackgroundJobRunner));
+        activity?.SetTag("messaging.operation", "process");
+
+        activity?.SetTag("job.attempts", backgroundJob.Attempts);
+        activity?.SetTag("job.id", backgroundJob.ExternalId);
+        activity?.SetTag("job.type", backgroundJob.Type);
+
+        try
+        {
             backgroundJob.Status = BackgroundJobStatus.InProgress;
             await unitOfWork.SaveChanges(cancellationToken);
 
@@ -49,7 +76,12 @@ public class BackgroundJobRunner(
         catch (Exception exception)
         {
             await unitOfWork.RollbackTransaction(cancellationToken);
-        
+            
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+
+            // Records the exception as a trace event for better observability.
+            activity?.AddException(exception);
+
             _logger.LogError(exception, "Background job {Id} failed", id);
 
             await HandleFailure(

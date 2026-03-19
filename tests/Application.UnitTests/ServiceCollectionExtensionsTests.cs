@@ -1,7 +1,7 @@
 ﻿using Application.Attributes;
-using Application.Contracts;
+using Application.Contracts.BackgroundJobs;
 using Application.Extensions;
-using Domain;
+using Domain.BackgroundJobs;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 
@@ -19,10 +19,8 @@ public class ServiceCollectionExtensionsTests
         services.AddApplicationServices();
 
         // Assert
-
-        // Verify BackgroundJobRunner is Transient
-        var runnerDescriptor = services.Single(x => x.ServiceType == typeof(IBackgroundJobRunner));
-        Assert.Equal(ServiceLifetime.Transient, runnerDescriptor.Lifetime);
+        Assert.Contains(services, d => d.ServiceType == typeof(IBackgroundJobRunner) && d.Lifetime == ServiceLifetime.Transient);
+        Assert.Contains(services, d => d.ServiceType == typeof(IBackgroundJobTypeRegistry) && d.Lifetime == ServiceLifetime.Singleton);
 
         // Verify every Enum value has exactly one Scoped registration
         var provider = services.BuildServiceProvider();
@@ -33,12 +31,13 @@ public class ServiceCollectionExtensionsTests
 
             // .Single() ensures exactly one registration exists
             var descriptor = services.Single(
-                x => x.ServiceType == typeof(IBackgroundJobHandler)
-                     && Equals(x.ServiceKey, jobType));
+                d => d.ServiceType == typeof(IBackgroundJobHandler)
+                     && Equals(d.ServiceKey, jobType));
+
+            Assert.NotNull(descriptor);
             Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
         }
 
-        // Verify handlers are not registered as concrete types (Interface only)
         var handlerTypes = Assembly.GetExecutingAssembly().GetTypes()
             .Where(t => typeof(IBackgroundJobHandler).IsAssignableFrom(t)
                         && t.IsClass
@@ -46,17 +45,18 @@ public class ServiceCollectionExtensionsTests
                         && !t.IsGenericType);
         foreach (var type in handlerTypes)
         {
-            var exists = services.Any(x => x.ServiceType == type);
-            Assert.False(exists, $"Handler '{type.Name}' should only be registered via its interface.");
-        }
+            // Must have the attribute
+            Assert.True(type.IsDefined(typeof(BackgroundJobHandlerAttribute)),
+                $"Handler '{type.Name}' is missing the [BackgroundJobHandler] attribute.");
 
-        // Verify every implementation is decorated with the required attribute
-        foreach (var type in handlerTypes)
-        {
-            var hasAttribute = type.IsDefined(typeof(BackgroundJobHandlerAttribute), false);
-            Assert.True(hasAttribute, $"Handler '{type.Name}' is missing the [BackgroundJobHandler] attribute.");
+            // Must be registered as the implementation for the Keyed Service
+            var isRegistered = services.Any(x =>
+                x.ServiceType == typeof(IBackgroundJobHandler) &&
+                x.ImplementationType == type &&
+                x.ServiceKey != null); // Ensures it has a key
+
+            Assert.True(isRegistered,
+                $"Handler '{type.Name}' was found in assembly but is not registered as a Keyed Service.");
         }
     }
 }
-
-

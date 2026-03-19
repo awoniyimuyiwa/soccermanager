@@ -1,4 +1,5 @@
 ﻿using Domain;
+using Domain.BackgroundJobs;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -47,6 +48,12 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
         {
             DisposeTransaction();
         }
+    }
+
+    public bool HasBackgroundJobs()
+    {
+        return _applicationDbContext.ChangeTracker.Entries<BackgroundJob>()
+            .Any(e => e.State == EntityState.Added);
     }
 
     public async Task RollbackTransaction(CancellationToken cancellationToken = default)

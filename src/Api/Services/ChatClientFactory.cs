@@ -1,15 +1,12 @@
 ﻿using Anthropic;
 using Anthropic.Core;
 using Anthropic.Exceptions;
-using Anthropic.Models.Models;
 using Api.Extensions;
 using Application.Contracts;
-using Azure;
 using Domain;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.AI;
 using OpenAI;
-using OpenAI.Chat;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Net;
@@ -235,4 +232,3 @@ public class ChatClientFactory(
         return new OpenAIClient(new ApiKeyCredential(credentialKey), options);
     }
 }
-

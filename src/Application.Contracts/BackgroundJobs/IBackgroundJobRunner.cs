@@ -1,8 +1,8 @@
-﻿namespace Application.Contracts;
+﻿namespace Application.Contracts.BackgroundJobs;
 
 public interface IBackgroundJobRunner
 {
     Task Run(
-        long id, 
+        long id,
         CancellationToken cancellationToken = default);
 }
