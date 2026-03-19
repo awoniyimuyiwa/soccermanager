@@ -1,7 +1,11 @@
 ﻿using Application.Attributes;
+using Application.BackgroundJobs;
+using Application.BackgroundJobs.Handlers;
 using Application.Contracts;
+using Application.Contracts.BackgroundJobs;
 using Application.Services;
 using Domain;
+using Domain.BackgroundJobs;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 
@@ -13,12 +17,12 @@ public static class ServiceCollectionExtensions
     {
         // Register application services here
         services
+            .AddScoped<IBackgroundJobManager, BackgroundJobManager>()
             .AddScoped<IPlayerService, PlayerService>()
             .AddScoped<ITeamService, TeamService>()
             .AddScoped<ITransferService, TransferService>()
             .AddScoped<IUserService, UserService>()
-            .AddBackgroundJobHandlers()
-            .AddTransient<IBackgroundJobRunner, BackgroundJobRunner>();
+            .AddBackgroundJobHandlers();
            
         return services;
     }
@@ -35,20 +39,34 @@ public static class ServiceCollectionExtensions
     /// </remarks>
     private static IServiceCollection AddBackgroundJobHandlers(this IServiceCollection services)
     {
+        var mappings = new Dictionary<Type, BackgroundJobType>();
+
         var handlers = Assembly.GetExecutingAssembly().GetTypes()
             .Where(h => h.IsClass && !h.IsAbstract && typeof(IBackgroundJobHandler).IsAssignableFrom(h))
             .Select(h => new
             {
                 Attr = h.GetCustomAttribute<BackgroundJobHandlerAttribute>(),
-                Type = h
+                Implementation = h,
+                // Find BackgroundJobHandler<T> and get the T
+                DtoType = h.BaseType?.IsGenericType == true && h.BaseType.GetGenericTypeDefinition() == typeof(BackgroundJobHandler<>)
+                    ? h.BaseType.GetGenericArguments()[0]
+                    : null
             })
             .Where(h => h.Attr != null);
 
-        foreach (var handler in handlers)
+        foreach (var h in handlers)
         {
-            // Register using the Enum from the attribute as the key to allow dynamic resolution by the runner.
-            services.AddKeyedScoped(typeof(IBackgroundJobHandler), handler.Attr!.Type, handler.Type);
+            services.AddKeyedScoped(typeof(IBackgroundJobHandler), h.Attr!.Type, h.Implementation);
+
+            if (h.DtoType != null)
+            {
+                mappings[h.DtoType] = h.Attr.Type;
+            }
         }
+
+        services.AddTransient<IBackgroundJobRunner, BackgroundJobRunner>();
+
+        services.AddSingleton<IBackgroundJobTypeRegistry>(new BackgroundJobTypeRegistry(mappings));
 
         return services;
     }

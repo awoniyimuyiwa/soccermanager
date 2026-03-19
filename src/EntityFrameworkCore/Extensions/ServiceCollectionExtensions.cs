@@ -1,4 +1,5 @@
 ﻿using Domain;
+using Domain.BackgroundJobs;
 using EntityFrameworkCore.Interceptors;
 using EntityFrameworkCore.Repositories;
 using Microsoft.Extensions.Configuration;

@@ -1,7 +1,6 @@
-﻿
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 
-namespace Domain;
+namespace Domain.BackgroundJobs;
 
 public interface IBackgroundJobRepository : IRepository<BackgroundJob>
 {
@@ -15,22 +14,33 @@ public interface IBackgroundJobRepository : IRepository<BackgroundJob>
         CancellationToken cancellationToken = default);
 
     Task<PaginatedList<BackgroundJobDto>> Paginate(
-        BackgroundJobFilterDto? filter,
+        GetBackgroundJobFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,
         int pageSize = Constants.MaxPageSize,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Requeues failed jobs.
+    /// </summary>
+    /// <param name="filter">The filtering criteria. If null or properties are empty, all failed jobs are processed.</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns>The number of jobs successfully requeued.</returns>/param>
     Task<int> RequeueFailed(
-        Guid[] ids,
+        RequeueBackgroundJobFilterDto? filter,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Requeues jobs that have been stuck in "In progress" state
+    /// </summary>
+    /// <param name="filter">The filtering criteria. If null or properties are empty, all stuck jobs are processed.</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns>The number of jobs successfully requeued.</returns>
     Task<int> RequeueStuck(
-        Guid[] ids,
-        uint afterMinutes,
+        RequeueBackgroundJobFilterDto? filter,
         CancellationToken cancellationToken = default);
 
     Task<CursorList<BackgroundJobDto>> Stream(
-       BackgroundJobFilterDto? filter,
+       GetBackgroundJobFilterDto? filter,
        PageCursor? cursor,
        int pageSize = Constants.MaxPageSize,
        CancellationToken cancellationToken = default);

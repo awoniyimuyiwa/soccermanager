@@ -1,7 +1,7 @@
-﻿using Application.Contracts;
+﻿using Application.Contracts.BackgroundJobs;
 using System.Text.Json;
 
-namespace Application.BackgroundJobHandlers;
+namespace Application.BackgroundJobs.Handlers;
 
 abstract class BackgroundJobHandler<T> : IBackgroundJobHandler where T : BackgroundJobHandlerDto
 {
@@ -15,7 +15,8 @@ abstract class BackgroundJobHandler<T> : IBackgroundJobHandler where T : Backgro
             throw new InvalidOperationException("Job payload is missing.");
         }
 
-        var data = JsonSerializer.Deserialize<T>(payload, JsonSerializerOptions.Web) ?? throw new InvalidOperationException("Job payload is malformed.");
+        var data = JsonSerializer.Deserialize<T>(payload, JsonSerializerOptions.Web) 
+            ?? throw new InvalidOperationException("Job payload is malformed.");
 
         await Handle(
             id, 

@@ -1,8 +1,8 @@
 ﻿using Application.Attributes;
-using Application.Contracts;
-using Domain;
+using Application.Contracts.BackgroundJobs;
+using Domain.BackgroundJobs;
 
-namespace Application.BackgroundJobHandlers;
+namespace Application.BackgroundJobs.Handlers;
 
 [BackgroundJobHandler(BackgroundJobType.MatchReport)]
 class MatchReportBackgroundJobHandler : BackgroundJobHandler<MatchReportBackgroundJobHandlerDto>
