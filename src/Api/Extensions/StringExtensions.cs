@@ -1,4 +1,4 @@
-﻿using Api.Models.V1;
+﻿using Api.Utils;
 using Domain;
 using Microsoft.AspNetCore.DataProtection;
 using System.Buffers.Text;
@@ -132,28 +132,29 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Decrypts and deserializes a protected string into a <see cref="PageCursor"/>.
+    /// Decrypts and deserializes a protected string into a <see cref="Cursor"/>.
     /// </summary>
     /// <param name="protectedText">The encrypted cursor string from the client.</param>
     /// <param name="protector">The data protector used for decryption.</param>
-    /// <param name="purpose">The unique purpose string for cryptographic isolation.</param>
-    /// <returns>A <see cref="PageCursor"/> instance, or a default cursor if the input is invalid or empty.</returns>
-    public static PageCursor? ToPageCursor(
-        this string? protectedText,
-        IDataProtector protector,
-        string? purpose)
+    /// <returns>A <see cref="Cursor"/> instance, or null if the input is invalid or empty.</returns>
+    public static Cursor? ToCursor<T>(
+         this string? protectedText,
+         IDataProtector protector)
     {
         if (string.IsNullOrWhiteSpace(protectedText))
         {
             return null;
         }
-            
-        var json = protectedText.Unprotect(protector, purpose);
-        if (string.IsNullOrWhiteSpace(json)) { return null; }
+
+        var purpose = EncryptionUtils.GetPurpose(
+            typeof(CursorList<T>), 
+            nameof(CursorList<T>.Next));
 
         try
         {
-            return JsonSerializer.Deserialize<PageCursor>(json);
+            var json = protectedText.Unprotect(protector, purpose);
+            if (string.IsNullOrWhiteSpace(json)) { return null; }
+            return JsonSerializer.Deserialize<Cursor>(json, JsonSerializerOptions.Web);
         }
         catch (Exception ex) when (ex is CryptographicException or JsonException)
         {

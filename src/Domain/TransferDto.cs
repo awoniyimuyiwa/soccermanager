@@ -31,4 +31,36 @@ public record FullTransferDto(
         CreatedAt,
         UpdatedAt,
         ConcurrencyStamp) {}
-    
+
+public record InternalFullTransferDto(
+    long InternalId,
+    Guid Id,
+    decimal AskingPrice,
+    Guid FromTeamId,
+    string? FromTeamName,
+    string? PlayerFirstName,
+    Guid PlayerId,
+    string? PlayerLastName,
+    Guid? ToTeamId,
+    string? ToTeamName,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    string? ConcurrencyStamp) : FullTransferDto(
+    Id, 
+    AskingPrice, 
+    FromTeamId, 
+    FromTeamName, 
+    PlayerFirstName,
+    PlayerId, 
+    PlayerLastName, 
+    ToTeamId, 
+    ToTeamName,
+    CreatedAt, 
+    UpdatedAt,
+    ConcurrencyStamp);
+
+public record TransferFilterDto(
+    bool? IsPending = null,
+    Guid? OwnerId = null,
+    string? Search = null);
+

@@ -1,10 +1,13 @@
 using Api.Attributes;
+using Api.Extensions;
 using Api.Models.V1;
 using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace Api.Controllers.V1;
 
@@ -13,10 +16,12 @@ namespace Api.Controllers.V1;
 [Audited]
 [Route("v{version:apiVersion}/transfers")]
 public class TransfersController(
+    IDataProtector dataProtector,
     ITransferRepository transferRepository,
     ITransferService transferService,
     UserManager<ApplicationUser> userManager) : ControllerBase
 {
+    readonly IDataProtector _dataProtector = dataProtector;
     readonly ITransferRepository _transferRepository = transferRepository;
     readonly ITransferService _transferService = transferService;
     readonly UserManager<ApplicationUser> _userManager = userManager;
@@ -26,33 +31,73 @@ public class TransfersController(
     /// </summary>
     /// <param name="isPending">Set to true for pending transfers, false for completed transfers</param>
     /// <param name="search">Search by team name, player first name, player last name</param>
-    /// <param name="pageNumber"></param>
-    /// <param name="pageSize"></param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
     [ProducesResponseType(typeof(PaginatedList<FullTransferDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaginatedList<FullTransferDto>>> Index(
-        bool? isPending = null,
-        string search = "",
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] bool? isPending = null,
+        [FromQuery] string search = "",
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var transfers = await _transferRepository.Paginate(
-            isPending,
-            null,
-            search,
+            new TransferFilterDto(isPending, null, search),
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
 
         return Ok(transfers);
     }
 
     /// <summary>
-    /// Gets transfers for teams owned by loged in user
+    /// Stream transfers using cursor-based pagination.
+    /// </summary>
+    /// <param name="isPending">Set to true for pending transfers, false for completed transfers.</param>
+    /// <param name="search">Search by team name, player first name, or player last name.</param>
+    /// <param name="next">The opaque token for the next page. Set to <c>null</c> to start at the beginning.</param>
+    /// <param name="pageSize">The number of records to return per batch.</param>
+    /// <response code="200">Returns a cursor-paginated list of transfers.</response>
+    [HttpGet("stream")]
+    [ProducesResponseType(typeof(CursorList<FullTransferDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorList<FullTransferDto>>> Stream(
+        [FromQuery] bool? isPending = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? next = null,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var cursor = next.ToCursor<FullTransferDto>(_dataProtector);
+
+        if (!string.IsNullOrWhiteSpace(next) && cursor is null)
+        {
+            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
+            return ValidationProblem();
+        }
+
+        var transfers = await _transferRepository.Stream(
+            new TransferFilterDto(isPending, null, search),
+            cursor,
+            pageSize,
+            cancellationToken);
+
+        return Ok(transfers);
+    }
+
+    /// <summary>
+    /// Gets transfers for teams owned by logged in user
     /// </summary>
     /// <param name="isPending">Set to true for pending transfers, false for completed transfers</param>
     /// <param name="search">Search by team name, player first name, player last name</param>
-    /// <param name="pageNumber"></param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
     /// <param name="pageSize"></param>
     /// <response code="200">When there are no errors</response>
     /// <response code="401">When authentication fails</response>
@@ -60,10 +105,11 @@ public class TransfersController(
     [ProducesResponseType(typeof(PaginatedList<FullTransferDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<PaginatedList<FullTransferDto>>> GetUserTransfers(
-        bool? isPending = null,
-        string search = "",
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] bool? isPending = null,
+        [FromQuery] string search = "",
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var user =  await _userManager.GetUserAsync(User);
         if (user is null)
@@ -72,11 +118,10 @@ public class TransfersController(
         }
 
         var transfers = await _transferRepository.Paginate(
-            isPending,
-            user.ExternalId,
-            search,
+            new TransferFilterDto(isPending, user.ExternalId, search),
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
 
         return Ok(transfers);
     }

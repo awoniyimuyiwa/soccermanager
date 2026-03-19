@@ -14,27 +14,15 @@ class PlayerRepository(
         _context.Set<PlayerValue>().Add(playerValue);
     }
 
-    public Task<PlayerDto?> Get(
+    public async Task<PlayerDto?> Get(
         Expression<Func<Player, bool>> expression,
         CancellationToken cancellationToken = default)
     {
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().Date);
 
-        return _context.Set<Player>().Where(expression)
-            .Select(p => new PlayerDto(
-                p.ExternalId,
-                p.GetAge(today),
-                p.Country,
-                p.DateOfBirth,
-                p.FirstName,
-                p.LastName,
-                p.Team.ExternalId,
-                p.Team.Name,
-                p.Type,
-                p.Value,
-                p.CreatedAt,
-                p.UpdatedAt,
-                p.ConcurrencyStamp))
+        return await _context.Set<Player>() 
+            .Where(expression)
+            .ToInternalDto(today)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -45,65 +33,41 @@ class PlayerRepository(
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().Date);
 
         return await _context.Set<Player>().Where(expression)
-            .Select(p => new PlayerDto(
-                p.ExternalId,
-                p.GetAge(today),
-                p.Country,
-                p.DateOfBirth,
-                p.FirstName,
-                p.LastName,
-                p.Team.ExternalId,
-                p.Team.Name,
-                p.Type,
-                p.Value,
-                p.CreatedAt,
-                p.UpdatedAt,
-                p.ConcurrencyStamp))
+            .ToInternalDto(today)
             .ToListAsync(cancellationToken);
     }
 
     public async Task<PaginatedList<PlayerDto>> Paginate(
-        Guid? teamId = null,
-        Guid? ownerId = null,
-        string searchTerm = "",
+        PlayerFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
         CancellationToken cancellationToken = default)
     {
-        pageNumber = Math.Max(Domain.Constants.MinPageNumber, pageNumber);
         pageSize = Math.Clamp(
-            pageSize, 
+            pageSize,
             Domain.Constants.MinPageSize,
             Domain.Constants.MaxPageSize);
 
+        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
+        pageNumber = Math.Clamp(
+            pageNumber,
+            Domain.Constants.MinPageNumber,
+            maxPageNumber);
+
+        var query = filter is not null
+            ? ApplyFilter(filter) : _context.Set<Player>();
+
+        var count = await query
+            .Take(Domain.Constants.MaxRowsToSkip + 1)
+            .CountAsync(cancellationToken);
+
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().Date);
 
-        var query = _context.Set<Player>()
-            .WhereIf(teamId != null, p => p.Team.ExternalId == teamId)
-            .WhereIf(ownerId != null, p => p.Team.Owner.ExternalId == ownerId)
-            .WhereIf(!string.IsNullOrWhiteSpace(searchTerm),
-                p => (p.FirstName != null && p.FirstName.Contains(searchTerm!))
-                     || (p.LastName != null && p.LastName.Contains(searchTerm!)));
-
-        var count = await query.CountAsync(cancellationToken);
         var items = await query
-            .OrderByDescending(tr => tr.CreatedAt)
+            .OrderByDescending(p => p.CreatedAt)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
-            .Select(p => new PlayerDto(
-                p.ExternalId,
-                p.GetAge(today),
-                p.Country,
-                p.DateOfBirth,
-                p.FirstName,
-                p.LastName,
-                p.Team.ExternalId,
-                p.Team.Name,
-                p.Type,
-                p.Value,
-                p.CreatedAt,
-                p.UpdatedAt,
-                p.ConcurrencyStamp))
+            .ToInternalDto(today)
             .ToListAsync(cancellationToken);
 
         return new PaginatedList<PlayerDto>(
@@ -111,5 +75,51 @@ class PlayerRepository(
             count,
             pageNumber,
             pageSize);
+    }
+
+    public async Task<CursorList<PlayerDto>> Stream(
+        PlayerFilterDto? filter,
+        Cursor? cursor,
+        int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        pageSize = Math.Clamp(
+            pageSize,
+            Domain.Constants.MinPageSize,
+            Domain.Constants.MaxPageSize);
+
+        var query = filter is not null
+            ? ApplyFilter(filter) : _context.Set<Player>();
+
+        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().Date);
+
+        // Descending order, newest first
+        var items = await query
+           .OrderByDescending(p => p.CreatedAt)
+           .ThenByDescending(p => p.Id)
+           .WhereIf(cursor != null, p => p.CreatedAt < cursor!.LastCreatedAt || (p.CreatedAt == cursor.LastCreatedAt && p.Id < cursor!.LastId))
+           .Take(pageSize)
+           .ToInternalDto(today)
+           .ToListAsync(cancellationToken);
+
+        var last = items.LastOrDefault();
+        var next = last != null
+            ? new Cursor(last.InternalId, last.CreatedAt)
+            : null;
+
+        return new CursorList<PlayerDto>(
+            items,
+            next?.ToJson(),
+            pageSize);
+    }
+
+    private IQueryable<Player> ApplyFilter(PlayerFilterDto filter)
+    {
+        return _context.Set<Player>()        
+            .WhereIf(filter.TeamId != null, p => p.Team.ExternalId == filter.TeamId)        
+            .WhereIf(filter.OwnerId != null, p => p.Team.Owner.ExternalId == filter.OwnerId)        
+            .WhereIf(!string.IsNullOrWhiteSpace(filter.SearchTerm),
+             p => (p.FirstName != null && p.FirstName.Contains(filter.SearchTerm!))
+                  || (p.LastName != null && p.LastName.Contains(filter.SearchTerm!)));
     }
 }

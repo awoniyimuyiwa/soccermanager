@@ -16,10 +16,10 @@ class BackgroundJobRepository(
         Expression<Func<BackgroundJob, bool>> expression,
         CancellationToken cancellationToken = default)
     {
-        return await( _context.Set<BackgroundJob>()
+        return await _context.Set<BackgroundJob>()
             .Where(expression)
             .ToInternalDto()
-            .FirstOrDefaultAsync(cancellationToken));
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<long>> GetIds(
@@ -78,7 +78,7 @@ class BackgroundJobRepository(
 
     public async Task<CursorList<BackgroundJobDto>> Stream(
         GetBackgroundJobFilterDto? filter,
-        PageCursor? cursor,
+        Cursor? cursor,
         int pageSize = Domain.Constants.MaxPageSize,
         CancellationToken cancellationToken = default)
     {
@@ -101,13 +101,13 @@ class BackgroundJobRepository(
            .ToListAsync(cancellationToken);
 
         var last = items.LastOrDefault();
-        cursor = last != null
-            ? new PageCursor(last.InternalId, last.CreatedAt)
+        var next = last != null
+            ? new Cursor(last.InternalId, last.CreatedAt)
             : null;
 
         return new CursorList<BackgroundJobDto>(
             items,
-            cursor,
+            next?.ToJson(),
             pageSize);
     }
 

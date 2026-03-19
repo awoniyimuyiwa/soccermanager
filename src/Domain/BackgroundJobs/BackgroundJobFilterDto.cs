@@ -1,14 +1,14 @@
 ﻿namespace Domain.BackgroundJobs;
 
 public record BackgroundJobFilterDto(
-    DateTimeOffset? CreatedFrom,
-    DateTimeOffset? CreatedTo,
-    BackgroundJobPriority[]? Priorities, // ?Priorities=High&Priorities=Normal
-    DateTimeOffset? ScheduledFrom,
-    DateTimeOffset? ScheduledTo,
-    BackgroundJobType[]? Types,
-    DateTimeOffset? UpdatedFrom,
-    DateTimeOffset? UpdatedTo)
+    DateTimeOffset? CreatedFrom = null,
+    DateTimeOffset? CreatedTo = null,
+    BackgroundJobPriority[]? Priorities = null, // ?Priorities=High&Priorities=Normal
+    DateTimeOffset? ScheduledFrom = null,
+    DateTimeOffset? ScheduledTo = null,
+    BackgroundJobType[]? Types = null,
+    DateTimeOffset? UpdatedFrom = null,
+    DateTimeOffset? UpdatedTo = null)
 {
     /// <summary>
     /// Specific job priorities to include. If empty, all priorities are processed.

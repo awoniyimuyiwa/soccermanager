@@ -4,6 +4,7 @@ using Api.Models.V1;
 using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,11 +15,13 @@ namespace Api.Controllers.V1;
 [Audited]
 [Route("v{version:apiVersion}/teams")]
 public class TeamsController(
+    IDataProtector dataProtector,
     IPlayerRepository playerRepository,
     ITeamRepository teamRepository,
     ITeamService teamService,
     UserManager<ApplicationUser> userManager) : ControllerBase
 {
+    readonly IDataProtector _dataProtector = dataProtector;
     readonly IPlayerRepository _playerRepository = playerRepository;
     readonly ITeamRepository _teamRepository = teamRepository;
     readonly ITeamService _teamService = teamService;
@@ -28,21 +31,58 @@ public class TeamsController(
     /// Get all teams
     /// </summary>
     /// <param name="search">Search by name</param>
-    /// <param name="pageNumber"></param>
-    /// <param name="pageSize"></param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
     [ProducesResponseType(typeof(PaginatedList<TeamDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaginatedList<TeamDto>>> Index(
-        string search = "",
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] string search = "",
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var teams = await _teamRepository.Paginate(
-            null,
-            search,
+            new TeamFilterDto(null, search),
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
+
+        return Ok(teams);
+    }
+
+    /// <summary>
+    /// Stream teams using cursor-based pagination.
+    /// </summary>
+    /// <param name="search">Search by name</param>
+    /// <param name="next">The opaque token for the next page. Pass <c>null</c> to start at the beginning.</param>
+    /// <param name="pageSize">The number of records to return per batch.</param>
+    /// <response code="200">Returns a cursor-paginated list of teams.</response>
+    [HttpGet("stream")]
+    [ProducesResponseType(typeof(CursorList<TeamDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorList<TeamDto>>> Stream(
+        [FromQuery] string? search = null,
+        [FromQuery] string? next = null,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var cursor = next.ToCursor<TeamDto>(_dataProtector);
+
+        if (!string.IsNullOrWhiteSpace(next) && cursor is null)
+        {
+            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
+            return ValidationProblem();
+        }
+
+        var teams = await _teamRepository.Stream(
+            new TeamFilterDto(null, search),
+            cursor,
+            pageSize,
+            cancellationToken);
+
         return Ok(teams);
     }
 
@@ -84,17 +124,21 @@ public class TeamsController(
     /// Get teams owned by logged in user
     /// </summary>
     /// <param name="search">Search by name</param>
-    /// <param name="pageNumber"></param>
-    /// <param name="pageSize"></param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     /// <response code="401">When authentication fails</response>
     [HttpGet("my-teams")]
     [ProducesResponseType(typeof(PaginatedList<TeamDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<PaginatedList<TeamDto>>> GetUserTeams(
-        string search = "",
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] string search = "",
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var owner = await _userManager.GetUserAsync(User);
         if (owner is null)
@@ -103,10 +147,10 @@ public class TeamsController(
         }
 
         var teams = await _teamRepository.Paginate(
-            owner.ExternalId,
-            search,
+            new TeamFilterDto(owner.ExternalId, search),
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
 
         return Ok(teams);
     }
@@ -171,23 +215,60 @@ public class TeamsController(
     /// </summary>
     /// <param name="id">Team id</param>
     /// <param name="search">Search by first name, last name etc.</param>
-    /// <param name="pageNumber"></param>
-    /// <param name="pageSize"></param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [ProducesResponseType(typeof(PaginatedList<PlayerDto>), StatusCodes.Status200OK)]
     [HttpGet("{id}/players")]
     public async Task<ActionResult<PaginatedList<PlayerDto>>> Players(
-        Guid id,
-        string search = "",
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromRoute] Guid id,
+        [FromQuery] string search = "",
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var players = await _playerRepository.Paginate(
-            id,
-            null,
-            search,
+            new PlayerFilterDto(null, search, id),
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
+
+        return Ok(players);
+    }
+
+    /// <summary>
+    /// Stream players of team with <paramref name="id"/> using cursor-based pagination.
+    /// </summary>
+    /// <param name="id">Team id.</param>
+    /// <param name="search">Search by first name, last name, etc.</param>
+    /// <param name="next">The opaque token for the next page. Set to <c>null</c> to start at the beginning.</param>
+    /// <param name="pageSize">The number of records to return per batch.</param>
+    /// <response code="200">Returns a cursor-paginated list of players.</response>
+    [HttpGet("{id}/players/stream")]
+    [ProducesResponseType(typeof(CursorList<PlayerDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorList<PlayerDto>>> StreamPlayers(
+        [FromRoute] Guid id,
+        [FromQuery] string? search = null,
+        [FromQuery] string? next = null,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var cursor = next.ToCursor<PlayerDto>(_dataProtector);
+
+        if (!string.IsNullOrWhiteSpace(next) && cursor is null)
+        {
+            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
+            return ValidationProblem();
+        }
+
+        var players = await _playerRepository.Stream(
+            new PlayerFilterDto(null, search, id),
+            cursor,
+            pageSize,
+            cancellationToken);
 
         return Ok(players);
     }

@@ -17,61 +17,45 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
         _context.Set<TransferBudgetValue>().Add(transferBudgetValue);
     }
 
-    public Task<TeamDto?> Get(
+    public async Task<TeamDto?> Get(
         Expression<Func<Team, bool>> expression,
         CancellationToken cancellationToken = default)
     {
-        return _context.Set<Team>().Where(expression)
-            .Select(t => new TeamDto(
-                t.ExternalId,
-                t.Country,
-                t.Name,
-                t.Owner.FirstName,
-                t.Owner.LastName,
-                t.TransferBudget,
-                t.Value,
-                t.CreatedAt,
-                t.UpdatedAt,
-                t.ConcurrencyStamp))
+        return await _context.Set<Team>()
+            .Where(expression)
+            .ToInternalDto()
             .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<PaginatedList<TeamDto>> Paginate(
-        Guid? ownerId = null,
-        string searchTerm = "",
+        TeamFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
         CancellationToken cancellationToken = default)
     {
-        pageNumber = Math.Max(Domain.Constants.MinPageNumber, pageNumber);
         pageSize = Math.Clamp(
-            pageSize, 
-            Domain.Constants.MinPageSize, 
-            Domain.Constants.MaxPageSize);
+           pageSize,
+           Domain.Constants.MinPageSize,
+           Domain.Constants.MaxPageSize);
 
-        var query = _context.Set<Team>()
-            .AsNoTracking()
-            .WhereIf(ownerId != null, t => t.Owner.ExternalId == ownerId)
-            .WhereIf(!string.IsNullOrWhiteSpace(searchTerm),
-               team => team.Name != null && team.Name.Contains(searchTerm!));
+        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
+        pageNumber = Math.Clamp(
+            pageNumber,
+            Domain.Constants.MinPageNumber,
+            maxPageNumber);
 
-        var count = await query.CountAsync(cancellationToken);
+        var query = filter is not null
+            ? ApplyFilter(filter) : _context.Set<Team>();
+
+        var count = await query
+            .Take(Domain.Constants.MaxRowsToSkip + 1)
+            .CountAsync(cancellationToken);
 
         var items = await query
-            .OrderByDescending(tr => tr.CreatedAt)
+            .OrderByDescending(p => p.CreatedAt)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
-            .Select(t => new TeamDto(
-                t.ExternalId,
-                t.Country,
-                t.Name,
-                t.Owner.FirstName,
-                t.Owner.LastName,
-                t.TransferBudget,
-                t.Value,
-                t.CreatedAt,
-                t.UpdatedAt,
-                t.ConcurrencyStamp))
+            .ToInternalDto()
             .ToListAsync(cancellationToken);
 
         return new PaginatedList<TeamDto>(
@@ -79,5 +63,47 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
             count,
             pageNumber,
             pageSize);
+    }
+
+    public async Task<CursorList<TeamDto>> Stream(
+        TeamFilterDto? filter,
+        Cursor? cursor,
+        int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        pageSize = Math.Clamp(
+            pageSize,
+            Domain.Constants.MinPageSize,
+            Domain.Constants.MaxPageSize);
+
+        var query = filter is not null
+            ? ApplyFilter(filter) : _context.Set<Team>();
+
+        // Descending order, newest first
+        var items = await query
+           .OrderByDescending(t => t.CreatedAt)
+           .ThenByDescending(t => t.Id)
+           .WhereIf(cursor != null, t => t.CreatedAt < cursor!.LastCreatedAt || (t.CreatedAt == cursor.LastCreatedAt && t.Id < cursor!.LastId))
+           .Take(pageSize)
+           .ToInternalDto()
+           .ToListAsync(cancellationToken);
+
+        var last = items.LastOrDefault();
+        var next = last != null
+            ? new Cursor(last.InternalId, last.CreatedAt)
+            : null;
+
+        return new CursorList<TeamDto>(
+            items,
+            next?.ToJson(),
+            pageSize);
+    }
+
+    private IQueryable<Team> ApplyFilter(TeamFilterDto filter)
+    {
+        return _context.Set<Team>()
+            .WhereIf(filter.OwnerId != null, t => t.Owner.ExternalId == filter.OwnerId)
+            .WhereIf(!string.IsNullOrWhiteSpace(filter.SearchTerm),
+            team => team.Name != null && team.Name.Contains(filter.SearchTerm!));
     }
 }

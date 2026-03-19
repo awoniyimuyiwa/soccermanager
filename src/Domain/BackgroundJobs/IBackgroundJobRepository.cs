@@ -40,9 +40,9 @@ public interface IBackgroundJobRepository : IRepository<BackgroundJob>
         CancellationToken cancellationToken = default);
 
     Task<CursorList<BackgroundJobDto>> Stream(
-       GetBackgroundJobFilterDto? filter,
-       PageCursor? cursor,
-       int pageSize = Constants.MaxPageSize,
-       CancellationToken cancellationToken = default);
+        GetBackgroundJobFilterDto? filter,
+        Cursor? cursor,
+        int pageSize = Constants.MaxPageSize,
+        CancellationToken cancellationToken = default);
 }
 

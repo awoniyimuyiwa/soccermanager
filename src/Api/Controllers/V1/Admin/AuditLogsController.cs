@@ -1,6 +1,8 @@
 ﻿using Api.BackgroundServices;
+using Api.Extensions;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 
@@ -11,53 +13,68 @@ namespace Api.Controllers.V1.Admin;
 [Route("v{version:apiVersion}/admin/audit-logs")]
 public class AuditLogsController(
     IAuditLogRepository auditLogRepository,
-    IBackgroundServiceStatRepository backgroundServiceStatRepository) : ControllerBase
+    IBackgroundServiceStatRepository backgroundServiceStatRepository,
+    IDataProtector dataProtector) : ControllerBase
 {
     readonly IAuditLogRepository _auditLogRepository = auditLogRepository;
     readonly IBackgroundServiceStatRepository _backgroundServiceStatRepository = backgroundServiceStatRepository;
-   
+    readonly IDataProtector _dataProtector = dataProtector;
+
     /// <summary>
-    /// Get audit logs
+    /// Get a paged list of audit logs.
     /// </summary>
-    /// <param name="from">Minimum timestamp in ISO 8601 format (value specified is inclusive)</param>
-    /// <param name="httpMethod"></param>
-    /// <param name="ipAddress"></param>
-    /// <param name="to">Maximum timestamp ISO 8601 format (value specified is inclusive)</param>
-    /// <param name="url"></param>
-    /// <param name="isSuccessful"></param>
-    /// <param name="requestId"></param>
-    /// <param name="userId"></param>
-    /// <param name="statusCode"></param>
-    /// <param name="pageNumber"></param>
-    /// <param name="pageSize"></param>
+    /// <param name="filter">The filtering criteria for the audit logs.</param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
     [ProducesResponseType(typeof(PaginatedList<AuditLogDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaginatedList<AuditLogDto>>> Index(
-        DateTimeOffset? from = null,
-        string? httpMethod = null,
-        string? ipAddress = null,
-        bool? isSuccessful = null,
-        string? requestId = null,
-        int? statusCode = null,
-        DateTimeOffset? to = null,
-        string? url = null,
-        Guid? userId = null,
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] AuditLogFilterDto filter,
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var auditLogs = await _auditLogRepository.Paginate(
-            from,
-            httpMethod,
-            ipAddress,
-            isSuccessful,
-            requestId,
-            statusCode,
-            to,
-            url,
-            userId,
+            filter,
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
+
+        return Ok(auditLogs);
+    }
+
+    /// <summary>
+    /// Streams audit logs using cursor-based pagination for high-performance infinite scrolling.
+    /// </summary>
+    /// <param name="filter">Filtering criteria for audit logs.</param>
+    /// <param name="next">The opaque cursor token from the previous response. Pass null for the first page</param>
+    /// <param name="pageSize">The number of records per page.</param>
+    /// <response code="200">When there are no errors</response>
+    [HttpGet("stream")]
+    [ProducesResponseType(typeof(CursorList<AuditLogDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorList<AuditLogDto>>> Stream(
+        [FromQuery] AuditLogFilterDto? filter,
+        [FromQuery] string? next,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var cursor = next.ToCursor<AuditLogDto>(_dataProtector);
+
+        if (!string.IsNullOrWhiteSpace(next) && cursor is null)
+        {
+            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
+            return ValidationProblem();
+        }
+
+        var auditLogs = await _auditLogRepository.Stream(
+            filter,
+            cursor,
+            pageSize,
+            cancellationToken);
 
         return Ok(auditLogs);
     }

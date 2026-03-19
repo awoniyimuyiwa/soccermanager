@@ -10,10 +10,14 @@ public interface ITransferRepository : IRepository<Transfer>
         CancellationToken cancellationToken = default);
 
     Task<PaginatedList<FullTransferDto>> Paginate(
-        bool? isPending = null,
-        Guid? ownerId = null, 
-        string searchTerm = "",
+        TransferFilterDto filter,
         int pageNumber = Constants.MinPageNumber,
+        int pageSize = Constants.MaxPageSize,
+        CancellationToken cancellationToken = default);
+
+    Task<CursorList<FullTransferDto>> Stream(
+        TransferFilterDto? filter, 
+        Cursor? cursor,
         int pageSize = Constants.MaxPageSize,
         CancellationToken cancellationToken = default);
 }
