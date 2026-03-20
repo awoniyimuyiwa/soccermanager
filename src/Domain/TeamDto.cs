@@ -33,7 +33,7 @@ public record InternalTeamDto(
     Value,
     CreatedAt, 
     UpdatedAt,
-    ConcurrencyStamp);
+    ConcurrencyStamp), IHasInternalCursor;
 
 public record TeamFilterDto(
     Guid? OwnerId = null,

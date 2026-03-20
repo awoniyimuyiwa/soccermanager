@@ -11,4 +11,17 @@ public record UserDto(
     string LastName,
     DateTimeOffset? LockoutEnd,
     string? UserName,
-    string? ConcurrencyStamp) { }
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    string? ConcurrencyStamp) : IHasInternalCursor 
+{
+    long IHasInternalCursor.InternalId => Id;
+}
+
+public record UserFilterDto(
+    string SearchTerm = "",
+    DateTimeOffset? CreatedFrom = null,
+    DateTimeOffset? CreatedTo = null,
+    bool? IsEmailConfirmed = null,
+    DateTimeOffset? UpdatedFrom = null,
+    DateTimeOffset? UpdatedTo = null);

@@ -38,78 +38,40 @@ class BackgroundJobRepository(
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<PaginatedList<BackgroundJobDto>> Paginate(
+    public Task<PaginatedList<BackgroundJobDto>> Paginate(
         GetBackgroundJobFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
+        CancellationToken cancellationToken = default) =>
+       
+        _context.Set<BackgroundJob>()
+        .ToPaginatedList<
+            BackgroundJob, 
+            InternalBackgroundJobDto, 
+            BackgroundJobDto>(
+            pageNumber,
             pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
+            q => q.ToInternalDto(),
+            bj => bj.CreatedAt,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
-        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
-        pageNumber = Math.Clamp(
-            pageNumber,
-            Domain.Constants.MinPageNumber,
-            maxPageNumber);
-
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<BackgroundJob>();
-
-        var count = await query
-            .Take(Domain.Constants.MaxRowsToSkip + 1)
-            .CountAsync(cancellationToken);
-
-        var items = await query
-            .OrderByDescending(bj => bj.CreatedAt)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToInternalDto()
-            .ToListAsync(cancellationToken);
-
-        return new PaginatedList<BackgroundJobDto>(
-            items,
-            count,
-            pageNumber,
-            pageSize);
-    }
-
-    public async Task<CursorList<BackgroundJobDto>> Stream(
+    public Task<CursorList<BackgroundJobDto>> Stream(
         GetBackgroundJobFilterDto? filter,
         Cursor? cursor,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
+        CancellationToken cancellationToken = default) =>
+
+        _context.Set<BackgroundJob>()
+        .ToCursorList<
+            BackgroundJob,
+            InternalBackgroundJobDto, 
+            BackgroundJobDto>(
+            cursor,
             pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
-
-        var query = filter is not null
-          ? ApplyFilter(filter) : _context.Set<BackgroundJob>();
-
-        // Descending order, newest first
-        var items = await query
-           .OrderByDescending(bj => bj.CreatedAt) // OrderBy for ascending
-           .ThenByDescending(bj => bj.Id) // Tie breaker must be unique // ThenBy for ascending 
-           .WhereIf(cursor != null, bj => bj.CreatedAt < cursor!.LastCreatedAt || (bj.CreatedAt == cursor.LastCreatedAt && bj.Id < cursor!.LastId))
-           // ascending: bj => bj.CreatedAt > cursor!.LastCreatedAt || (bj.CreatedAt == cursor.LastCreatedAt && bj.Id > cursor!.LastId))
-           .Take(pageSize)
-           .ToInternalDto()
-           .ToListAsync(cancellationToken);
-
-        var last = items.LastOrDefault();
-        var next = last != null
-            ? new Cursor(last.InternalId, last.CreatedAt)
-            : null;
-
-        return new CursorList<BackgroundJobDto>(
-            items,
-            next?.ToJson(),
-            pageSize);
-    }
+            q => q.ToInternalDto(),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
     public Task<int> RequeueFailed(
         RequeueBackgroundJobFilterDto? filter,

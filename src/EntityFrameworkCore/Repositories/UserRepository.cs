@@ -42,49 +42,53 @@ class UserRepository(ApplicationDbContext context) : IUserRepository
         return dto;
     }
 
-    public async Task<PaginatedList<UserDto>> Paginate(
-        string searchTerm = "",
+    public Task<PaginatedList<UserDto>> Paginate(
+        UserFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageNumber = Math.Max(Domain.Constants.MinPageNumber, pageNumber);
-
-        pageSize = Math.Clamp(
-            pageSize, 
-            Domain.Constants.MinPageSize, 
-            Domain.Constants.MaxPageSize);
+        CancellationToken cancellationToken = default) => 
         
-        var query = _context.Set<ApplicationUser>()
-            .AsNoTracking()
-            .WhereIf(!string.IsNullOrWhiteSpace(searchTerm),
-               user => (user.Email != null && user.Email.Contains(searchTerm!))
-                       || (user.UserName != null && user.UserName.Contains(searchTerm!))
-                       || (user.FirstName != null && user.FirstName.Contains(searchTerm!))
-                       || (user.LastName != null && user.LastName.Contains(searchTerm!)));
-       
-        var count = await query.CountAsync(cancellationToken);
-        
-        var items = await query
-            .OrderByDescending(u => u.Id)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .Select(u => new UserDto(
-                u.Email,
-                //u.ExternalId,
-                u.FirstName,
-                u.Id,
-                u.EmailConfirmed,
-                u.LastName,
-                u.LockoutEnd,
-                u.UserName,
-                u.ConcurrencyStamp))
-            .ToListAsync(cancellationToken);
-     
-        return new PaginatedList<UserDto>(
-            items,
-            count,
+        _context.Set<ApplicationUser>()
+        .ToPaginatedList<
+            ApplicationUser, 
+            UserDto, 
+            UserDto>(
             pageNumber,
-            pageSize);
+            pageSize,
+            q => q.ToDto(),
+            u => u.CreatedAt,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
+
+    public Task<CursorList<UserDto>> Stream(
+        UserFilterDto? filter,
+        Cursor? cursor,
+        int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default) => 
+       
+        _context.Set<ApplicationUser>()
+        .ToCursorList<
+            ApplicationUser, 
+            UserDto, 
+            UserDto>(
+            cursor,
+            pageSize,
+            q => q.ToDto(),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
+
+    private IQueryable<ApplicationUser> ApplyFilter(UserFilterDto filter)
+    {
+        return _context.Set<ApplicationUser>()
+            .WhereIf(!string.IsNullOrWhiteSpace(filter.SearchTerm),
+               u => (u.Email != null && u.Email.Contains(filter.SearchTerm!))
+                       || (u.UserName != null && u.UserName.Contains(filter.SearchTerm!))
+                       || (u.FirstName != null && u.FirstName.Contains(filter.SearchTerm!))
+                       || (u.LastName != null && u.LastName.Contains(filter.SearchTerm!)))
+             .WhereIf(filter.IsEmailConfirmed.HasValue, user => user.EmailConfirmed == filter.IsEmailConfirmed)
+             .WhereIf(filter.CreatedFrom.HasValue, user => user.CreatedAt >= filter.CreatedFrom!.Value)
+             .WhereIf(filter.CreatedTo.HasValue, user => user.CreatedAt <= filter.CreatedTo!.Value)
+             .WhereIf(filter.UpdatedFrom.HasValue, user => user.UpdatedAt >= filter.UpdatedFrom!.Value)
+             .WhereIf(filter.UpdatedTo.HasValue, user => user.UpdatedAt <= filter.UpdatedTo!.Value);
     }
 }

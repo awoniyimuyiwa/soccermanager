@@ -27,77 +27,40 @@ class TeamRepository(ApplicationDbContext context) : BaseRepository<Team>(contex
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<PaginatedList<TeamDto>> Paginate(
+    public Task<PaginatedList<TeamDto>> Paginate(
         TeamFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
-           pageSize,
-           Domain.Constants.MinPageSize,
-           Domain.Constants.MaxPageSize);
+        CancellationToken cancellationToken = default) => 
 
-        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
-        pageNumber = Math.Clamp(
+        _context.Set<Team>()
+        .ToPaginatedList<
+            Team, 
+            InternalTeamDto, 
+            TeamDto>(
             pageNumber,
-            Domain.Constants.MinPageNumber,
-            maxPageNumber);
+            pageSize,
+            q => q.ToInternalDto(),
+            t => t.CreatedAt,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<Team>();
-
-        var count = await query
-            .Take(Domain.Constants.MaxRowsToSkip + 1)
-            .CountAsync(cancellationToken);
-
-        var items = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToInternalDto()
-            .ToListAsync(cancellationToken);
-
-        return new PaginatedList<TeamDto>(
-            items,
-            count,
-            pageNumber,
-            pageSize);
-    }
-
-    public async Task<CursorList<TeamDto>> Stream(
+    public Task<CursorList<TeamDto>> Stream(
         TeamFilterDto? filter,
         Cursor? cursor,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
+        CancellationToken cancellationToken = default) =>
+
+        _context.Set<Team>()    
+        .ToCursorList<
+            Team, 
+            InternalTeamDto, 
+            TeamDto>(
+            cursor,
             pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
-
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<Team>();
-
-        // Descending order, newest first
-        var items = await query
-           .OrderByDescending(t => t.CreatedAt)
-           .ThenByDescending(t => t.Id)
-           .WhereIf(cursor != null, t => t.CreatedAt < cursor!.LastCreatedAt || (t.CreatedAt == cursor.LastCreatedAt && t.Id < cursor!.LastId))
-           .Take(pageSize)
-           .ToInternalDto()
-           .ToListAsync(cancellationToken);
-
-        var last = items.LastOrDefault();
-        var next = last != null
-            ? new Cursor(last.InternalId, last.CreatedAt)
-            : null;
-
-        return new CursorList<TeamDto>(
-            items,
-            next?.ToJson(),
-            pageSize);
-    }
+            q => q.ToInternalDto(),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
     private IQueryable<Team> ApplyFilter(TeamFilterDto filter)
     {

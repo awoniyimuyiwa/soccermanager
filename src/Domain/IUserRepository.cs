@@ -15,8 +15,14 @@ public interface IUserRepository
         CancellationToken cancellationToken = default);
 
     Task<PaginatedList<UserDto>> Paginate(
-        string searchTerm = "",
+        UserFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,
         int pageSize = Constants.MaxPageSize,
+        CancellationToken cancellationToken = default);
+
+    Task<CursorList<UserDto>> Stream(
+        UserFilterDto? filter, 
+        Cursor? cursor, 
+        int pageSize, 
         CancellationToken cancellationToken = default);
 }

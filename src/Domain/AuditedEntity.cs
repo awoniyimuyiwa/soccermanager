@@ -1,6 +1,13 @@
 namespace Domain;
 
-public abstract class AuditedEntity : Entity
+
+public interface IAuditedEntity : IHasCursorMetadata
+{
+    [NotAudited]
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public abstract class AuditedEntity : Entity, IAuditedEntity
 {
     [NotAudited]
     public DateTimeOffset CreatedAt { get; set; }

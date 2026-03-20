@@ -45,4 +45,4 @@ public record InternalBackgroundJobDto(
         Type,
         CreatedAt,
         UpdatedAt,
-        ConcurrencyStamp);
+        ConcurrencyStamp), IHasInternalCursor;

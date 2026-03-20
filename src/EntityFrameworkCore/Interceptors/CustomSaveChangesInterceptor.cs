@@ -41,7 +41,7 @@ class CustomSaveChangesInterceptor(
             bool hasMeaningfulChange = entry.State == EntityState.Added
                || entry.Properties.Any(p => p.IsModified);
 
-            if (entry.Entity is AuditedEntity auditedEntity)
+            if (entry.Entity is IAuditedEntity auditedEntity)
             {
                 if (entry.State == EntityState.Added)
                 {
@@ -94,7 +94,7 @@ class CustomSaveChangesInterceptor(
                 }
             }
 
-            if (entry.Entity is AuditedEntity
+            if (entry.Entity is IAuditedEntity
                 && entry.State == EntityState.Added
                 || entry.State == EntityState.Modified
                 || entry.State == EntityState.Deleted)
