@@ -16,10 +16,14 @@ public interface IPlayerRepository : IRepository<Player>
         CancellationToken cancellationToken = default);
 
     Task<PaginatedList<PlayerDto>> Paginate(
-        Guid? teamId = null,
-        Guid? ownerId = null, 
-        string searchTerm = "", 
+        PlayerFilterDto filter,
         int pageNumber = Constants.MinPageNumber, 
         int pageSize = Constants.MaxPageSize, 
+        CancellationToken cancellationToken = default);
+
+    Task<CursorList<PlayerDto>> Stream(
+        PlayerFilterDto? filter, 
+        Cursor? cursor,
+        int pageSize = Constants.MaxPageSize,
         CancellationToken cancellationToken = default);
 }

@@ -44,7 +44,6 @@ public class PlayersController(
     /// Get scout report of player with <paramref name="id"/>
     /// </summary>
     /// <param name="id">Player id</param>
-    /// <param name="cancellationToken"></param>
     /// <response code="200">When there are no errors</response>
     /// <response code="401">When the user is not authenticated</response>
     /// <response code="404">When the player or AI settings are not found</response>
@@ -53,7 +52,7 @@ public class PlayersController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ScoutReportModel>> ScoutReport(
         Guid id,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         var userId = User.GetUserId();
 

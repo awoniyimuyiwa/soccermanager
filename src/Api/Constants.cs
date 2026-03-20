@@ -20,7 +20,7 @@ public class Constants
 
     public const string GlobalRateLimitPolicyName = "global_rate_limit_policy";
 
-    public const string InvalidCursorErrorMessage = "Cursor is invalid";
+    public const string InvalidErrorMessage = "Invalid";
 
     public const string LlmHttpClientName = "LlmHttpClient";
 

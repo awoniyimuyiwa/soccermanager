@@ -1,6 +1,5 @@
 ﻿using Api.BackgroundServices;
 using Api.Extensions;
-using Api.Models.V1;
 using Domain;
 using Domain.BackgroundJobs;
 using Microsoft.AspNetCore.Authorization;
@@ -22,13 +21,16 @@ public class BackgroundJobsController(
     readonly IBackgroundJobRepository _backgroundJobRepository = backgroundJobRepository;
     readonly IBackgroundJobTrigger _backgroundJobTrigger = backgroundJobTrigger;
     readonly IBackgroundServiceStatRepository _backgroundServiceStatRepository = backgroundServiceStatRepository;
-    readonly Lazy<IDataProtector> _dataProtector = new(() => dataProtector.CreateProtector("BackgroundJob"));
+    readonly IDataProtector _dataProtector = dataProtector;
 
     /// <summary>
     /// Retrieves a paginated list of background jobs for administrative grids.
     /// </summary>
     /// <param name="filter">Filtering criteria (Status, Type, etc.).</param>
-    /// <param name="pageNumber">The 1-based page index.</param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
@@ -36,12 +38,14 @@ public class BackgroundJobsController(
     public async Task<ActionResult<PaginatedList<BackgroundJobDto>>> Index(
         [FromQuery] GetBackgroundJobFilterDto? filter,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
         var backgroundJobs = await _backgroundJobRepository.Paginate(
             filter,
             pageNumber,
-            pageSize);
+            pageSize,
+            cancellationToken);
 
         return Ok(backgroundJobs);
     }
@@ -50,32 +54,32 @@ public class BackgroundJobsController(
     /// Streams background jobs using cursor-based pagination for high-performance infinite scrolling.
     /// </summary>
     /// <param name="filter">Filtering criteria for jobs.</param>
-    /// <param name="cursor">The opaque cursor token from the previous response.</param>
+    /// <param name="next">The opaque cursor token from the previous response. Pass null for the first page</param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorListModel<BackgroundJobDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorListModel<BackgroundJobDto>>> Stream(
+    [ProducesResponseType(typeof(CursorList<BackgroundJobDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorList<BackgroundJobDto>>> Stream(
         [FromQuery] GetBackgroundJobFilterDto? filter,
-        [FromQuery] string? cursor = null)
+        [FromQuery] string? next,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
     {
-        var pageCursor = cursor.ToPageCursor(_dataProtector.Value, null);
+        var cursor = next.ToCursor<BackgroundJobDto>(_dataProtector);
 
-        if (!string.IsNullOrWhiteSpace(cursor) && pageCursor is null)
+        if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
-            ModelState.AddModelError(nameof(cursor), Constants.InvalidCursorErrorMessage);
+            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
             return ValidationProblem();
         }
 
         var backgroundJobs = await _backgroundJobRepository.Stream(
             filter,
-            pageCursor);
+            cursor,
+            pageSize,
+            cancellationToken);
 
-        // Encapsulate pagination state into an opaque, tamper-proof cursor token
-        var model = backgroundJobs.ToModel(
-            _dataProtector.Value,
-            null);
-
-        return Ok(model);
+        return Ok(backgroundJobs);
     }
 
     /// <summary>

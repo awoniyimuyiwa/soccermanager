@@ -91,6 +91,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.AddSingleton<IPostConfigureOptions<BearerTokenOptions>, ConfigureBearerTokenOptions>();
 builder.Services.AddSingleton<IPostConfigureOptions<CookieAuthenticationOptions>, ConfigureCookieAuthenticationOptions>();
 builder.Services.AddSingleton<IPostConfigureOptions<JsonOptions>, ConfigureJsonOptions>();
+builder.Services.AddSingleton<IPostConfigureOptions<Microsoft.AspNetCore.Mvc.JsonOptions>, ConfigureMvcJsonOptions>();
 
 // Add services to the container.
 builder.Services.AddSingleton(TimeProvider.System);

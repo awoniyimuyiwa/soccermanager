@@ -17,9 +17,14 @@ public interface ITeamRepository : IRepository<Team>
         CancellationToken cancellationToken = default);
 
     Task<PaginatedList<TeamDto>> Paginate(
-        Guid? ownerId = null,
-        string searchTerm = "",
+        TeamFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,
+        int pageSize = Constants.MaxPageSize,
+        CancellationToken cancellationToken = default);
+
+    Task<CursorList<TeamDto>> Stream(
+        TeamFilterDto? filter, 
+        Cursor? cursor,
         int pageSize = Constants.MaxPageSize,
         CancellationToken cancellationToken = default);
 }
