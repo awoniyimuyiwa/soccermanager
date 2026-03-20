@@ -1,7 +1,9 @@
-﻿using Api.Models.V1;
+﻿using Api.Extensions;
+using Api.Models.V1;
 using Api.Services;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Controllers.V1.Admin;
@@ -10,32 +12,69 @@ namespace Api.Controllers.V1.Admin;
 [Authorize(Roles = Domain.Constants.AdminRoleName)]
 [Route("v{version:apiVersion}/admin/users")]
 public class UsersController(
+    IDataProtector dataProtector,
     IUserRepository userRepository,
     IUserSessionManager sessionManager) : ControllerBase
 {
+    readonly IDataProtector _dataProtector = dataProtector;
     readonly IUserRepository _userRepository = userRepository;
     readonly IUserSessionManager _sessionManager = sessionManager;
 
     /// <summary>
-    /// Get all users
+    /// Get a paged list of users.
     /// </summary>
-    /// <param name="search">Search by name</param>
-    /// <param name="pageNumber"></param>
-    /// <param name="pageSize"></param>
+    /// <param name="filter">The filtering criteria for the audit logs.</param>
+    /// <param name="pageNumber">
+    /// The 1-based page index. Values are clamped between 1 and the maximum allowed 
+    /// offset limit (currently {50000 / pageSize + 1}).
+    /// </param>
+    /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
     [ProducesResponseType(typeof(PaginatedList<UserDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaginatedList<UserDto>>> Index(
-        string search = "",
-        int pageNumber = Domain.Constants.MinPageNumber,
-        int pageSize = Domain.Constants.MaxPageSize)
+        [FromQuery] UserFilterDto? filter,
+        [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var users = await _userRepository.Paginate(
-            search,
+            filter,
             pageNumber,
             pageSize);
 
         return Ok(users);          
+    }
+
+    /// <summary>
+    /// Streams users using cursor-based pagination for high-performance infinite scrolling.
+    /// </summary>
+    /// <param name="filter">Filtering criteria for audit logs.</param>
+    /// <param name="next">The opaque cursor token from the previous response. Pass null for the first page</param>
+    /// <param name="pageSize">The number of records per page.</param>
+    /// <response code="200">When there are no errors</response>
+    [HttpGet("stream")]
+    [ProducesResponseType(typeof(CursorList<UserDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorList<UserDto>>> Stream(
+        [FromQuery] UserFilterDto? filter,
+        [FromQuery] string? next,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var cursor = next.ToCursor<UserDto>(_dataProtector);
+
+        if (!string.IsNullOrWhiteSpace(next) && cursor is null)
+        {
+            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
+            return ValidationProblem();
+        }
+
+        var users = await _userRepository.Stream(
+            filter,
+            cursor,
+            pageSize,
+            cancellationToken);
+
+        return Ok(users);
     }
 
     /// <summary>

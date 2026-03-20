@@ -57,7 +57,7 @@ public record InternalFullTransferDto(
     ToTeamName,
     CreatedAt, 
     UpdatedAt,
-    ConcurrencyStamp);
+    ConcurrencyStamp), IHasInternalCursor;
 
 public record TransferFilterDto(
     bool? IsPending = null,

@@ -37,77 +37,40 @@ class AuditLogRepository(ApplicationDbContext context) : BaseRepository<AuditLog
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<PaginatedList<AuditLogDto>> Paginate(
+    public Task<PaginatedList<AuditLogDto>> Paginate(
         AuditLogFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
+        CancellationToken cancellationToken = default) => 
+        
+        _context.Set<AuditLog>()
+        .ToPaginatedList<
+            AuditLog,
+            InternalAuditLogDto, 
+            AuditLogDto>(
+            pageNumber,
             pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
+            q => q.ToInternalDto(),
+            al => al.TimeStamp,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
-        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
-        pageNumber = Math.Clamp(
-            pageNumber,
-            Domain.Constants.MinPageNumber,
-            maxPageNumber);
-
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<AuditLog>();
-
-        var count = await query
-            .Take(Domain.Constants.MaxRowsToSkip + 1)
-            .CountAsync(cancellationToken);
-
-        var items = await query
-            .OrderByDescending(al => al.TimeStamp)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToInternalDto()
-            .ToListAsync(cancellationToken);
-
-        return new PaginatedList<AuditLogDto>(
-            items,
-            count,
-            pageNumber,
-            pageSize);
-    }
-
-    public async Task<CursorList<AuditLogDto>> Stream(
+    public Task<CursorList<AuditLogDto>> Stream(
         AuditLogFilterDto? filter,
         Cursor? cursor,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
+        CancellationToken cancellationToken = default) =>
+
+        _context.Set<AuditLog>()
+        .ToCursorList<
+            AuditLog,
+            InternalAuditLogDto, 
+            AuditLogDto>(
+            cursor,
             pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
-
-        var query = filter is not null
-          ? ApplyFilter(filter) : _context.Set<AuditLog>();
-
-        // Descending order, newest first
-        var items = await query
-           .OrderByDescending(al => al.TimeStamp) 
-           .ThenByDescending(al => al.Id) 
-           .WhereIf(cursor != null, al => al.TimeStamp < cursor!.LastCreatedAt || (al.TimeStamp == cursor.LastCreatedAt && al.Id < cursor!.LastId))
-           .Take(pageSize)
-           .ToInternalDto()
-           .ToListAsync(cancellationToken);
-
-        var last = items.LastOrDefault();
-        var next = last != null
-            ? new Cursor(last.InternalId, last.TimeStamp)
-            : null;
-
-        return new CursorList<AuditLogDto>(
-            items,
-            next?.ToJson(),
-            pageSize);
-    }
+            q => q.ToInternalDto(),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
     private IQueryable<AuditLog> ApplyFilter(AuditLogFilterDto filter)
     {

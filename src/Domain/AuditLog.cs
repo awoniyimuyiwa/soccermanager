@@ -6,9 +6,19 @@ namespace Domain;
 /// For tracking who did what and when, which is essential for auditing, debugging, and security purposes.
 /// Neither this nor its navigation properties should extend <see cref="AuditedEntity"/> as their changes should not be audited to avoid infinite loop.
 /// </summary>
-public class AuditLog : Entity
+public class AuditLog : Entity, IHasCursorMetadata
 {
     public string? BrowserInfo { get; set; }
+
+    /// <summary>
+    /// This property exists only when the object is cast to <see cref="IHasCursorMetadata"/>
+    /// It does NOT create a new column the database.
+    /// </summary>
+    DateTimeOffset IHasCursorMetadata.CreatedAt
+    {
+        get => TimeStamp;
+        set => TimeStamp = value;
+    }
 
     public double Duration { get; set; }
 

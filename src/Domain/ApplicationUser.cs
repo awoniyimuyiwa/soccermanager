@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Identity;
 
 namespace Domain;
 
-public class ApplicationUser : IdentityUser<long>
+public class ApplicationUser : IdentityUser<long>, IAuditedEntity
 {
     private long? _aiSettingId;
 
@@ -13,6 +13,12 @@ public class ApplicationUser : IdentityUser<long>
     public string FirstName { get; set; } = "";
 
     public string LastName { get; set; } = "";
+
+    [NotAudited]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [NotAudited]
+    public DateTimeOffset? UpdatedAt { get; set; }
 
     /// <summary>
     /// 1-1 Relationship

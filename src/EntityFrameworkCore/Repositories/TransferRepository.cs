@@ -17,77 +17,40 @@ class TransferRepository(ApplicationDbContext context) : BaseRepository<Transfer
            .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<PaginatedList<FullTransferDto>> Paginate(
+    public Task<PaginatedList<FullTransferDto>> Paginate(
         TransferFilterDto filter,
         int pageNumber = 1,
-        int pageSize = 100,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
-           pageSize,
-           Domain.Constants.MinPageSize,
-           Domain.Constants.MaxPageSize);
+        int pageSize = Domain.Constants.MaxPageSize,
+        CancellationToken cancellationToken = default) =>
 
-        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
-        pageNumber = Math.Clamp(
+        _context.Set<Transfer>()
+        .ToPaginatedList<
+            Transfer, 
+            InternalFullTransferDto, 
+            FullTransferDto>(
             pageNumber,
-            Domain.Constants.MinPageNumber,
-            maxPageNumber);
+            pageSize,
+            q => q.ToInternalDto(),
+            tr => tr.CreatedAt,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<Transfer>();
-
-        var count = await query
-            .Take(Domain.Constants.MaxRowsToSkip + 1)
-            .CountAsync(cancellationToken);
-
-        var items = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToInternalDto()
-            .ToListAsync(cancellationToken);
-
-        return new PaginatedList<FullTransferDto>(
-            items,
-            count,
-            pageNumber,
-            pageSize);
-    }
-
-    public async Task<CursorList<FullTransferDto>> Stream(
+    public Task<CursorList<FullTransferDto>> Stream(
         TransferFilterDto? filter,
         Cursor? cursor,
         int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
-        pageSize = Math.Clamp(
+        CancellationToken cancellationToken = default) => 
+
+        _context.Set<Transfer>()    
+        .ToCursorList<
+            Transfer, 
+            InternalFullTransferDto, 
+            FullTransferDto>(
+            cursor,
             pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
-
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<Transfer>();
-
-        // Descending order, newest first
-        var items = await query
-           .OrderByDescending(tr => tr.CreatedAt)
-           .ThenByDescending(tr => tr.Id)
-           .WhereIf(cursor != null, tr => tr.CreatedAt < cursor!.LastCreatedAt || (tr.CreatedAt == cursor.LastCreatedAt && tr.Id < cursor!.LastId))
-           .Take(pageSize)
-           .ToInternalDto()
-           .ToListAsync(cancellationToken);
-
-        var last = items.LastOrDefault();
-        var next = last != null
-            ? new Cursor(last.InternalId, last.CreatedAt)
-            : null;
-
-        return new CursorList<FullTransferDto>(
-            items,
-            next?.ToJson(),
-            pageSize);
-    }
+            q => q.ToInternalDto(),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
 
     private IQueryable<Transfer> ApplyFilter(TransferFilterDto filter)
     {

@@ -42,7 +42,7 @@ public record InternalPlayerDto(
     Value, 
     CreatedAt, 
     UpdatedAt, 
-    ConcurrencyStamp);
+    ConcurrencyStamp), IHasInternalCursor;
 
 public record PlayerFilterDto(
     Guid? OwnerId = null,

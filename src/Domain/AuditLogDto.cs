@@ -36,7 +36,10 @@ public record InternalAuditLogDto(
     StatusCode, 
     TimeStamp, 
     Url, 
-    UserId);
+    UserId), IHasInternalCursor
+{
+    DateTimeOffset IHasInternalCursor.CreatedAt => TimeStamp;
+}
 
 public record FullAuditLogDto(
     Guid Id,

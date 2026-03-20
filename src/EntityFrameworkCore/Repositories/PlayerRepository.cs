@@ -37,80 +37,43 @@ class PlayerRepository(
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<PaginatedList<PlayerDto>> Paginate(
+    public Task<PaginatedList<PlayerDto>> Paginate(
         PlayerFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
         int pageSize = Domain.Constants.MaxPageSize,
         CancellationToken cancellationToken = default)
     {
-        pageSize = Math.Clamp(
-            pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
-
-        var maxPageNumber = (Domain.Constants.MaxRowsToSkip / pageSize) + 1;
-        pageNumber = Math.Clamp(
-            pageNumber,
-            Domain.Constants.MinPageNumber,
-            maxPageNumber);
-
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<Player>();
-
-        var count = await query
-            .Take(Domain.Constants.MaxRowsToSkip + 1)
-            .CountAsync(cancellationToken);
-
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().Date);
 
-        var items = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToInternalDto(today)
-            .ToListAsync(cancellationToken);
-
-        return new PaginatedList<PlayerDto>(
-            items,
-            count,
+        return _context.Set<Player>().ToPaginatedList<
+            Player, 
+            InternalPlayerDto,
+            PlayerDto>(
             pageNumber,
-            pageSize);
+            pageSize,
+            q => q.ToInternalDto(today),
+            p => p.CreatedAt,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
     }
 
-    public async Task<CursorList<PlayerDto>> Stream(
+    public Task<CursorList<PlayerDto>> Stream(
         PlayerFilterDto? filter,
         Cursor? cursor,
         int pageSize = Domain.Constants.MaxPageSize,
         CancellationToken cancellationToken = default)
     {
-        pageSize = Math.Clamp(
-            pageSize,
-            Domain.Constants.MinPageSize,
-            Domain.Constants.MaxPageSize);
-
-        var query = filter is not null
-            ? ApplyFilter(filter) : _context.Set<Player>();
-
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().Date);
-
-        // Descending order, newest first
-        var items = await query
-           .OrderByDescending(p => p.CreatedAt)
-           .ThenByDescending(p => p.Id)
-           .WhereIf(cursor != null, p => p.CreatedAt < cursor!.LastCreatedAt || (p.CreatedAt == cursor.LastCreatedAt && p.Id < cursor!.LastId))
-           .Take(pageSize)
-           .ToInternalDto(today)
-           .ToListAsync(cancellationToken);
-
-        var last = items.LastOrDefault();
-        var next = last != null
-            ? new Cursor(last.InternalId, last.CreatedAt)
-            : null;
-
-        return new CursorList<PlayerDto>(
-            items,
-            next?.ToJson(),
-            pageSize);
+ 
+        return _context.Set<Player>().ToCursorList<
+            Player, 
+            InternalPlayerDto, 
+            PlayerDto>(
+            cursor,
+            pageSize,
+            q => q.ToInternalDto(today),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
     }
 
     private IQueryable<Player> ApplyFilter(PlayerFilterDto filter)
