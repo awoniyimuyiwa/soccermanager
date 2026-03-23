@@ -3,24 +3,43 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Api.Attributes;
 
-public sealed class UniqueMaxAttribute(int maxLength) : ValidationAttribute
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
+public sealed class UniqueMaxAttribute(int maxLength = Constants.MaxLengthOfList) : ValidationAttribute
 {
-    protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
+    protected override ValidationResult? IsValid(
+        object? value, 
+        ValidationContext validationContext)
     {
-        // If the value is null or not a collection, we skip (handled by [Required] if needed)
         if (value is not IEnumerable enumerable)
             return ValidationResult.Success;
 
-        // Cast to object list once to avoid multiple enumerations
         var list = enumerable.Cast<object>().ToList();
-
         if (list.Count == 0)
             return ValidationResult.Success;
 
-        if (list.Count > maxLength)
-            return new ValidationResult($"{validationContext.DisplayName} cannot exceed {maxLength} items.");
+        // Try to get type from the Property Info, fallback to the runtime type of the value
+        var memberType = validationContext.ObjectType
+            .GetProperty(validationContext.MemberName ?? string.Empty)?
+            .PropertyType ?? value.GetType();
 
-        // Check for uniqueness
+        // Handle both Arrays (T[]) and Collections (List<T>, IReadOnlyCollection<T>)
+        Type? elementType = null;
+        if (memberType.IsArray)
+        {
+            elementType = memberType.GetElementType();
+        }
+        else if (memberType.IsGenericType)
+        {
+            elementType = memberType.GetGenericArguments().FirstOrDefault();
+        }
+
+        int effectiveMax = (elementType is { IsEnum: true })
+            ? Enum.GetValues(elementType).Length
+            : maxLength;
+
+        if (list.Count > effectiveMax)
+            return new ValidationResult($"{validationContext.DisplayName} cannot exceed {effectiveMax} items.");
+
         if (list.Distinct().Count() != list.Count)
             return new ValidationResult($"{validationContext.DisplayName} must contain unique items.");
 

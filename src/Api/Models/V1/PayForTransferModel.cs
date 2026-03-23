@@ -1,14 +1,16 @@
-using Application.Contracts;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Models.V1;
 
-public record PayForTransferModel : PayForTransferDto
-{
+/// <summary>
+/// Data for processing a transfer payment.
+/// </summary>
+/// <param name="ToTeamId">The unique identifier of the team receiving the player.</param>
+/// <param name="ConcurrencyStamp">Stamp to ensure the transfer wasn't modified since retrieval.</param>
+public record PayForTransferModel(
+    [Required]
+    Guid ToTeamId,
+
     [MaxLength(Domain.Constants.StringMaxLength)]
     [Required]
-    public override string ConcurrencyStamp { get; init; } = null!;
-
-    [Required]
-    public override Guid ToTeamId { get; init; }
-}
+    string ConcurrencyStamp);

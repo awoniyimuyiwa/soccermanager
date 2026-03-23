@@ -24,9 +24,12 @@ public class Constants
 
     public const string LlmHttpClientName = "LlmHttpClient";
 
+    public const int MaxLengthOfList = 100;
+
     public const int MaxLengthOfPlayers = 11;
 
     public const string SecretProtectorPurpose = "VaultedSecrets";
 
     public const string UserRateLimitPolicyName = "user_rate_limit_policy";
+  
 }

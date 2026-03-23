@@ -18,7 +18,7 @@ class AuditLogManager(
         _current = new AuditLog
         {
             ExternalId = Guid.NewGuid(),
-            TimeStamp = _timeProvider.GetUtcNow()
+            CreatedAt = _timeProvider.GetUtcNow()
         };
 
         // Return a disposable to clear the scope when finished

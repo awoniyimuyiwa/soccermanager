@@ -1,7 +1,6 @@
 ﻿using Api.Options;
 using EntityFrameworkCore.Extensions;
 using Microsoft.AspNetCore.DataProtection;
-using StackExchange.Redis;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Api.Extensions;
@@ -47,7 +46,6 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         string appName,
         CustomDataProtectionOptions customDataProtectionOptions,
-        IConnectionMultiplexer connectionMultiplexer,
         ILogger logger,
         TimeProvider? timeProvider = null)
     {

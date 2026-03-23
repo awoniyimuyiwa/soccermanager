@@ -1,11 +1,22 @@
 namespace Application.Contracts;
 
-public record CreateUpdateTeamDto
-{
-    /// <summary>
-    /// Must be a valid ISO 3166-1 alpha-2 country code (e.g., US, GB)
-    /// </summary>
-    public virtual string? Country { get; init; }
+/// <summary>
+/// DTO for creating or updating a team.
+/// </summary>
+/// <param name="Country">Must be a valid ISO 3166-1 alpha-2 country code (e.g., US, GB)</param>
+/// <param name="Name">The display name of the team.</param>
+public record CreateUpdateTeamDto(
+    string? Country,
+    string? Name);
 
-    public virtual string? Name { get; init; }
-}
+public record CreateTeamDto(
+    string? Country,
+    string? Name,
+    decimal TransferBudget = Domain.Constants.InitialTeamTransferBudget)
+    : CreateUpdateTeamDto(Country, Name);
+
+public record UpdateTeamDto(
+    string? Country,
+    string? Name,
+    string ConcurrencyStamp)
+    : CreateUpdateTeamDto(Country, Name);

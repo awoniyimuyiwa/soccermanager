@@ -1,11 +1,12 @@
 ﻿using Api.BackgroundServices;
 using Api.Extensions;
+using Api.Models.V1;
 using Domain;
 using Domain.BackgroundJobs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
+using System.ComponentModel.DataAnnotations;
 
 namespace Api.Controllers.V1.Admin;
 
@@ -34,20 +35,19 @@ public class BackgroundJobsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedList<BackgroundJobDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedList<BackgroundJobDto>>> Index(
-        [FromQuery] GetBackgroundJobFilterDto? filter,
+    [ProducesResponseType(typeof(PaginatedListModel<BackgroundJobModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListModel<BackgroundJobModel>>> Index(
+        [FromQuery] GetBackgroundJobFilterModel? filter,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var backgroundJobs = await _backgroundJobRepository.Paginate(
-            filter,
+            filter?.ToDto(),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(backgroundJobs);
+        return Ok(backgroundJobs.ToModel(bj => bj.ToModel()));
     }
 
     /// <summary>
@@ -58,14 +58,13 @@ public class BackgroundJobsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorList<BackgroundJobDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorList<BackgroundJobDto>>> Stream(
-        [FromQuery] GetBackgroundJobFilterDto? filter,
-        [FromQuery] string? next,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(CursorListModel<BackgroundJobModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListModel<BackgroundJobModel>>> Stream(
+        [FromQuery] GetBackgroundJobFilterModel? filter,
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? next,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<BackgroundJobDto>(_dataProtector);
+        var cursor = next.ToCursor<BackgroundJobModel>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -74,12 +73,12 @@ public class BackgroundJobsController(
         }
 
         var backgroundJobs = await _backgroundJobRepository.Stream(
-            filter,
+            filter?.ToDto(),
             cursor,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(backgroundJobs);
+        return Ok(backgroundJobs.ToModel(bj => bj.ToModel()));
     }
 
     /// <summary>
@@ -89,18 +88,18 @@ public class BackgroundJobsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When background job is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(FullAuditLogDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BackgroundJobModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<FullAuditLogDto>> View(Guid id)
+    public async Task<ActionResult<BackgroundJobModel>> View(Guid id)
     {
-        var backgroundJob = await _backgroundJobRepository.Get(bj => bj.ExternalId == id);
+        var dto = await _backgroundJobRepository.Get(bj => bj.ExternalId == id);
 
-        if (backgroundJob is null)
+        if (dto is null)
         {
             return NotFound();
         }
 
-        return Ok(backgroundJob);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
@@ -119,16 +118,14 @@ public class BackgroundJobsController(
     /// Re-activates background jobs that have reached their maximum retry limit or encountered a terminal failure.
     /// </summary>
     /// <param name="filter">Filtering criteria for jobs.</param>
-    /// <param name="cancellationToken"></param>
     /// <response code="200">When there are no errors</response>
     [HttpPost("requeue")]
     public async Task<IActionResult> Requeue(
-        [FromQuery] RequeueBackgroundJobFilterDto? filter,
-        CancellationToken cancellationToken)
+        [FromQuery] RequeueBackgroundJobFilterModel? filter)
     {
         var count = await _backgroundJobRepository.RequeueFailed(
-            filter,
-            cancellationToken);
+            filter?.ToDto(),
+            HttpContext.RequestAborted);
 
         if (count > 0)
         {
@@ -137,14 +134,16 @@ public class BackgroundJobsController(
 
         return Ok($"Requeued jobs: {count}");
     }
-  
+
     /// <summary>
     /// Get background job processing status
     /// </summary>
     /// <response code="200">When there are no errors</response>
+    /// <response code="404">When background job is not found </response>
     [HttpGet("processing-status")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> ProcessingStatus()
+    [ProducesResponseType(typeof(BackgroundServiceStatModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BackgroundServiceStatModel>> ProcessingStatus()
     {
         var dto = await _backgroundServiceStatRepository.Get
             (bss => bss.Type == BackgroundServiceStatType.BackgroundJob);
@@ -154,15 +153,6 @@ public class BackgroundJobsController(
             return NotFound("Background job processing has never run.");
         }
 
-        return Ok(new
-        {
-            Details = !string.IsNullOrWhiteSpace(dto.Details)
-            ? JsonSerializer.Deserialize<object>(
-                dto.Details,
-                JsonSerializerOptions.Web) : null,
-            dto.LastRunAt,
-            dto.TotalInLastRun,
-            dto.Total
-        });
+        return Ok(dto.ToModel());
     }
 }

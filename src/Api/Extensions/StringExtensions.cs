@@ -1,4 +1,5 @@
-﻿using Api.Utils;
+﻿using Api.Models.V1;
+using Api.Utils;
 using Domain;
 using Microsoft.AspNetCore.DataProtection;
 using System.Buffers.Text;
@@ -139,7 +140,7 @@ public static class StringExtensions
     /// <returns>A <see cref="Cursor"/> instance, or null if the input is invalid or empty.</returns>
     public static Cursor? ToCursor<T>(
          this string? protectedText,
-         IDataProtector protector)
+         IDataProtector protector) where T : class
     {
         if (string.IsNullOrWhiteSpace(protectedText))
         {
@@ -147,8 +148,8 @@ public static class StringExtensions
         }
 
         var purpose = EncryptionUtils.GetPurpose(
-            typeof(CursorList<T>), 
-            nameof(CursorList<T>.Next));
+            typeof(CursorListModel<T>), 
+            nameof(CursorListModel<T>.Next));
 
         try
         {

@@ -135,7 +135,7 @@ public class AuditLogCleanupService(
             do
             {
                 deletedInBatch = await auditLogRepository.ExecuteDelete(
-                    al => al.TimeStamp < cutoff,
+                    al => al.CreatedAt < cutoff,
                     options.CleanupBatchSize,
                     cancellationToken);
                 if (deletedInBatch > 0)

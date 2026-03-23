@@ -24,6 +24,7 @@ static class QueryableExtensions
         CancellationToken cancellationToken = default)
         where TEntity : class, IHasCursorMetadata
         where TInternalDto : class, IHasInternalCursor, TResultDto
+        where TResultDto: class
     {
         if (filter != null)
         {
@@ -117,7 +118,7 @@ static class QueryableExtensions
             al.IpAddress,
             al.RequestId,
             al.StatusCode,
-            al.TimeStamp,
+            al.CreatedAt,
             al.Url,
             al.User.ExternalId));
     }

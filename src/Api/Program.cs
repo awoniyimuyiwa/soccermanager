@@ -277,7 +277,6 @@ var customDataProtectionOptions =
 builder.Services.AddCustomDataProtection( 
     appName,
     customDataProtectionOptions!,
-    prefixedMultiplexer, 
     logger);
 
 // Register the specific base IDataProtector for your application

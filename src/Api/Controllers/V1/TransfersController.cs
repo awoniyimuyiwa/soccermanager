@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using static System.Net.Mime.MediaTypeNames;
+using System.ComponentModel.DataAnnotations;
 
 namespace Api.Controllers.V1;
 
@@ -38,21 +38,20 @@ public class TransfersController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedList<FullTransferDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedList<FullTransferDto>>> Index(
+    [ProducesResponseType(typeof(PaginatedListModel<FullTransferModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListModel<FullTransferModel>>> Index(
         [FromQuery] bool? isPending = null,
-        [FromQuery] string search = "",
+        [FromQuery][MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var transfers = await _transferRepository.Paginate(
             new TransferFilterDto(isPending, null, search),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(transfers);
+        return Ok(transfers.ToModel(t => t.ToModel()));
     }
 
     /// <summary>
@@ -64,15 +63,14 @@ public class TransfersController(
     /// <param name="pageSize">The number of records to return per batch.</param>
     /// <response code="200">Returns a cursor-paginated list of transfers.</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorList<FullTransferDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorList<FullTransferDto>>> Stream(
+    [ProducesResponseType(typeof(CursorListModel<FullTransferModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListModel<FullTransferModel>>> Stream(
         [FromQuery] bool? isPending = null,
-        [FromQuery] string? search = null,
-        [FromQuery] string? next = null,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? next = null,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<FullTransferDto>(_dataProtector);
+        var cursor = next.ToCursor<FullTransferModel>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -84,9 +82,9 @@ public class TransfersController(
             new TransferFilterDto(isPending, null, search),
             cursor,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(transfers);
+        return Ok(transfers.ToModel(t => t.ToModel()));
     }
 
     /// <summary>
@@ -102,14 +100,13 @@ public class TransfersController(
     /// <response code="200">When there are no errors</response>
     /// <response code="401">When authentication fails</response>
     [HttpGet("my-transfers")]
-    [ProducesResponseType(typeof(PaginatedList<FullTransferDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PaginatedListModel<FullTransferModel>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<PaginatedList<FullTransferDto>>> GetUserTransfers(
+    public async Task<ActionResult<PaginatedListModel<FullTransferModel>>> GetUserTransfers(
         [FromQuery] bool? isPending = null,
-        [FromQuery] string search = "",
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var user =  await _userManager.GetUserAsync(User);
         if (user is null)
@@ -121,9 +118,9 @@ public class TransfersController(
             new TransferFilterDto(isPending, user.ExternalId, search),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(transfers);
+        return Ok(transfers.ToModel(t => t.ToModel()));
     }
 
     /// <summary>
@@ -133,22 +130,22 @@ public class TransfersController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When team is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(FullTransferDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FullTransferModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<FullTransferDto>> View(Guid id)
+    public async Task<ActionResult<FullTransferModel>> View(Guid id)
     {
-        var transfer = await _transferRepository.FindAsFullDto(t => t.ExternalId == id);
-        if (transfer is null)
+        var dto = await _transferRepository.FindAsFullDto(t => t.ExternalId == id);
+        if (dto is null)
         {
             return NotFound();
         }
 
-        return Ok(transfer);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
     /// Pay for transfer: <paramref name="id"/>, move player to destination team owned by logged in user specified in <paramref name="input"/> 
-    /// update player value, source team and destination team tansfer budget and values.
+    /// update player value, source team and destination team transfer budget and values.
     /// </summary>
     /// <param name="id">Transfer id</param>
     /// <param name="input"></param>
@@ -159,13 +156,13 @@ public class TransfersController(
     /// <response code="409">When concurrency error occurs</response>
     /// <response code="422">When request can't be processed</response>
     [HttpPut("{id}/pay")]
-    [ProducesResponseType(typeof(TransferDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TransferModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-    public async Task<ActionResult<TransferDto>> Pay(
+    public async Task<ActionResult<TransferModel>> Pay(
         Guid id,
         PayForTransferModel input)
     {
@@ -175,10 +172,10 @@ public class TransfersController(
             return Unauthorized();
         }
 
-        var transfer = await _transferService.Pay(    
+        var dto = await _transferService.Pay(    
             id,    
-            input);
+            input.ToDto());
 
-        return Ok(transfer);
+        return Ok(dto.ToModel());
     }
 }

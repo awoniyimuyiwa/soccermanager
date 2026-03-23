@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 
 namespace Api.Controllers.V1;
 
@@ -38,20 +39,21 @@ public class TeamsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedList<TeamDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedList<TeamDto>>> Index(
-        [FromQuery] string search = "",
+    [ProducesResponseType(typeof(PaginatedListModel<TeamModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListModel<TeamModel>>> Index(
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
+        // HttpContext.RequestAborted is used to avoid CS1573 warning 
+        // and also not clutter docs with a cancellation token parameter.   
         var teams = await _teamRepository.Paginate(
             new TeamFilterDto(null, search),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(teams);
+        return Ok(teams.ToModel(t => t.ToModel()));
     }
 
     /// <summary>
@@ -62,14 +64,13 @@ public class TeamsController(
     /// <param name="pageSize">The number of records to return per batch.</param>
     /// <response code="200">Returns a cursor-paginated list of teams.</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorList<TeamDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorList<TeamDto>>> Stream(
-        [FromQuery] string? search = null,
-        [FromQuery] string? next = null,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(CursorListModel<TeamModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListModel<TeamModel>>> Stream(
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? next = null,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<TeamDto>(_dataProtector);
+        var cursor = next.ToCursor<TeamModel>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -81,9 +82,9 @@ public class TeamsController(
             new TeamFilterDto(null, search),
             cursor,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(teams);
+        return Ok(teams.ToModel(t => t.ToModel()));
     }
 
     /// <summary>
@@ -94,10 +95,10 @@ public class TeamsController(
     /// <response code="400">When there are validation errors</response>
     /// <response code="401">When authentication fails</response>
     [HttpPost]
-    [ProducesResponseType(typeof(TeamDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TeamModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<TeamDto>> Create(CreateTeamModel input)
+    public async Task<ActionResult<TeamModel>> Create(CreateTeamModel input)
     {
         var user = await _userManager.GetUserAsync(User);
         if (user is null)
@@ -112,12 +113,12 @@ public class TeamsController(
             return ValidationProblem();
         }
 
-        var team = await _teamService.Create(        
+        var dto = await _teamService.Create(        
             user,
-            input,
-            [.. input.Players.Select(p => p as CreatePlayerDto)]);
+            input.ToDto(),
+            [.. input.Players.Select(p => p.ToDto())]);
 
-        return Ok(team);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
@@ -132,13 +133,12 @@ public class TeamsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="401">When authentication fails</response>
     [HttpGet("my-teams")]
-    [ProducesResponseType(typeof(PaginatedList<TeamDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PaginatedListModel<TeamModel>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<PaginatedList<TeamDto>>> GetUserTeams(
-        [FromQuery] string search = "",
+    public async Task<ActionResult<PaginatedListModel<TeamModel>>> GetUserTeams(
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var owner = await _userManager.GetUserAsync(User);
         if (owner is null)
@@ -150,9 +150,9 @@ public class TeamsController(
             new TeamFilterDto(owner.ExternalId, search),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(teams);
+        return Ok(teams.ToModel(t => t.ToModel()));
     }
 
     /// <summary>
@@ -162,17 +162,17 @@ public class TeamsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When team is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(TeamDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TeamModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<TeamDto>> View(Guid id)
+    public async Task<ActionResult<TeamModel>> View(Guid id)
     {
-        var team = await _teamRepository.Get(t => t.ExternalId == id);
-        if (team is null)
+        var dto = await _teamRepository.Get(t => t.ExternalId == id);
+        if (dto is null)
         {
             return NotFound();
         }
 
-        return Ok(team);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
@@ -200,14 +200,11 @@ public class TeamsController(
             userId,
             new AddPlayersDto()
             {
-                Players = [.. input.Players.Select(p => p as CreatePlayerDto)],
+                Players = [.. input.Players.Select(p => p.ToDto())],
                 TeamConcurrencyStamp = input.TeamConcurrencyStamp
             });
 
-        return Ok(new PlayersModel
-        {
-            Players = players
-        });
+        return Ok(players.ToModel());
     }
 
     /// <summary>
@@ -221,22 +218,21 @@ public class TeamsController(
     /// </param>
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
-    [ProducesResponseType(typeof(PaginatedList<PlayerDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PaginatedListModel<PlayerModel>), StatusCodes.Status200OK)]
     [HttpGet("{id}/players")]
-    public async Task<ActionResult<PaginatedList<PlayerDto>>> Players(
+    public async Task<ActionResult<PaginatedListModel<PlayerModel>>> Players(
         [FromRoute] Guid id,
-        [FromQuery] string search = "",
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
-    {
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
+    {    
         var players = await _playerRepository.Paginate(
             new PlayerFilterDto(null, search, id),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(players);
+        return Ok(players.ToModel(p => p.ToModel()));
     }
 
     /// <summary>
@@ -248,15 +244,14 @@ public class TeamsController(
     /// <param name="pageSize">The number of records to return per batch.</param>
     /// <response code="200">Returns a cursor-paginated list of players.</response>
     [HttpGet("{id}/players/stream")]
-    [ProducesResponseType(typeof(CursorList<PlayerDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorList<PlayerDto>>> StreamPlayers(
+    [ProducesResponseType(typeof(CursorListModel<PlayerModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListModel<PlayerModel>>> StreamPlayers(
         [FromRoute] Guid id,
-        [FromQuery] string? search = null,
-        [FromQuery] string? next = null,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? search = null,
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? next = null,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<PlayerDto>(_dataProtector);
+        var cursor = next.ToCursor<PlayerModel>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -268,9 +263,9 @@ public class TeamsController(
             new PlayerFilterDto(null, search, id),
             cursor,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(players);
+        return Ok(players.ToModel(p => p.ToModel()));
     }
 
     /// <summary>
@@ -284,12 +279,12 @@ public class TeamsController(
     /// <response code="404">When team is not found </response>
     /// <response code="409">When concurrency error occurs</response>
     [HttpPut("{id}")]
-    [ProducesResponseType(typeof(TeamDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TeamModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<TeamDto>> Update(
+    public async Task<ActionResult<TeamModel>> Update(
         Guid id,
         UpdateTeamModel input)
     {
@@ -304,11 +299,11 @@ public class TeamsController(
             return ValidationProblem();
         }
 
-        var team = await _teamService.Update(   
+        var dto = await _teamService.Update(   
             id,
             userId,
-            input);
+            input.ToDto());
 
-        return Ok(team);
+        return Ok(dto.ToModel());
     }
 }
