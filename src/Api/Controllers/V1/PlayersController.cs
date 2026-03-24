@@ -26,18 +26,18 @@ public class PlayersController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When player is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(PlayerDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PlayerModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<PlayerDto>> View(Guid id)
+    public async Task<ActionResult<PlayerModel>> View(Guid id)
     {
-        var player = await _playerRepository.Get(p => p.ExternalId == id);
+        var dto = await _playerRepository.Get(p => p.ExternalId == id);
 
-        if (player is null)
+        if (dto is null)
         {
             return NotFound();
         }
 
-        return Ok(player);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
@@ -51,21 +51,21 @@ public class PlayersController(
     [ProducesResponseType(typeof(ScoutReportModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ScoutReportModel>> ScoutReport(
-        Guid id,
-        CancellationToken cancellationToken = default)
+        Guid id)
     {
         var userId = User.GetUserId();
 
         var report = await _playerService.GetScoutReport(
             id, 
             userId,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
         return Ok(new ScoutReportModel
         {
             Report = report
         });
     }
+
 
     /// <summary>
     /// Place player with <paramref name="id"/> in a team owned by the logged in user on the transfer list if the player isn't already on transfer list
@@ -79,24 +79,24 @@ public class PlayersController(
     /// <response code="409">When concurrency error occurs</response>
     /// <response code="422">When request can't be processed</response>
     [HttpPost("{id}/transfer-list")]
-    [ProducesResponseType(typeof(TransferDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TransferModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-    public async Task<ActionResult<PlayerDto>> PlaceOnTransferList(
+    public async Task<ActionResult<TransferModel>> PlaceOnTransferList(
         Guid id,
         PlaceOnTransferListModel input)
     {
         var userId = User.GetUserId();
 
-        var transfer = await _playerService.PlaceOnTransferList(   
+        var dto = await _playerService.PlaceOnTransferList(   
             id,
             userId,
-            input);
+            input.ToDto());
 
-        return Ok(transfer);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
@@ -110,22 +110,22 @@ public class PlayersController(
     /// <response code="404">When player is not found </response>
     /// <response code="409">When concurrency error occurs</response>
     [HttpPut("{id}")]
-    [ProducesResponseType(typeof(PlayerDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PlayerModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<PlayerDto>> Update(
+    public async Task<ActionResult<PlayerModel>> Update(
         Guid id,
         UpdatePlayerModel input)
     {
         var userId = User.GetUserId();
 
-        var player = await _playerService.Update(   
+        var dto = await _playerService.Update(   
             id,
             userId,
-            input);
+            input.ToDto());
 
-        return Ok(player);
+        return Ok(dto.ToModel());
     }
 }

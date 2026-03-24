@@ -1,31 +1,36 @@
-using Application.Contracts;
 using Domain;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Models.V1;
 
-public record CreateUpdateAISettingModel : CreateUpdateAISettingDto
-{
-    [MaxLength(Domain.Constants.StringMaxLength)]
+/// <summary>
+/// Model for creating or updating AI settings.
+/// </summary>
+/// <param name="CustomEndpoint">Optional custom URL (e.g., http://localhost:11434).</param>
+/// <param name="Key">The API key; encrypted at rest. Optional for local LLMs.</param>
+/// <param name="Model">The specific model name (e.g., 'gpt-4o' or 'llama3.1').</param>
+/// <param name="Provider">
+/// The AI provider identifier:
+/// 0 = <see cref="AIProvider.OpenAI"/>, 
+/// 1 = <see cref="AIProvider.Anthropic"/>, 
+/// 2 = <see cref="AIProvider.Gemini"/>, 
+/// 3 = <see cref="AIProvider.Groq"/>, 
+/// 4 = <see cref="AIProvider.Ollama"/>.
+/// </param>
+public record CreateUpdateAISettingModel(
     [Url(ErrorMessage = "Please provide a valid absolute URL (e.g., http://localhost:11434).")]
-    public override string? CustomEndpoint { get; init; }
+    [MaxLength(Domain.Constants.StringMaxLength)]
+    string? CustomEndpoint,
 
-    /// <summary>
-    /// Optional to support local LLMs like Ollama.
-    /// Encrypted at rest
-    /// </summary>
-    [NotAudited]
+    [property: NotAudited]
     [DataType(DataType.Password)]
     [MaxLength(Domain.Constants.StringMaxLength)]
-    public override string? Key { get; init; }
+    string? Key,
 
-    [Required(ErrorMessage = "A Model name (e.g., 'gpt-4o' or 'llama3.1') is required.")]
+    [Required(ErrorMessage = "A Model name is required.")]
     [MaxLength(Domain.Constants.StringMaxLength)]
-    public override string Model { get; init; } = "";
+    string Model = "",
 
     [Required]
     [EnumDataType(typeof(AIProvider))]
-    public override int Provider { get; init; }
-}
-
-
+    int Provider = (int)AIProvider.OpenAI);

@@ -2,19 +2,15 @@ using Domain;
 
 namespace Application.Contracts;
 
-public record CreateUpdateAISettingDto
-{
-    public virtual string? CustomEndpoint { get; init; }
-
-    /// <summary>
-    /// Encrypted Base64Url string in C#, varbinary(max) in SQL.
-    /// Optional to support local LLMs like Ollama.
-    /// </summary>
-    [NotAudited]
-    public virtual string? Key { get; init; }
-
-    public virtual string Model { get; init; } = "";
-
-    public virtual int Provider { get; init; } = (int)AIProvider.OpenAI;
-}
-
+/// <summary>
+/// DTO for creating or updating AI settings.
+/// </summary>
+/// <param name="CustomEndpoint">Optional custom URL for the AI service.</param>
+/// <param name="Key">Encrypted Base64Url key; optional for local LLMs like Ollama.</param>
+/// <param name="Model">The specific model name (e.g., gpt-4).</param>
+/// <param name="Provider">The AI provider identifier (Default: OpenAI).</param>
+public record CreateUpdateAISettingDto(
+    string? CustomEndpoint,
+    [property: NotAudited] string? Key,
+    string Model = "",
+    int Provider = (int)AIProvider.OpenAI);

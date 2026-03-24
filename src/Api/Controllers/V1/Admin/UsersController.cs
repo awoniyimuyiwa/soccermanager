@@ -5,6 +5,7 @@ using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 
 namespace Api.Controllers.V1.Admin;
 
@@ -31,18 +32,19 @@ public class UsersController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedList<UserDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedList<UserDto>>> Index(
-        [FromQuery] UserFilterDto? filter,
+    [ProducesResponseType(typeof(PaginatedListModel<UserModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListModel<UserModel>>> Index(
+        [FromQuery] UserFilterModel? filter,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
         [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var users = await _userRepository.Paginate(
-            filter,
+            filter?.ToDto(),
             pageNumber,
-            pageSize);
+            pageSize,
+            HttpContext.RequestAborted);
 
-        return Ok(users);          
+        return Ok(users.ToModel(u => u.ToModel()));          
     }
 
     /// <summary>
@@ -53,14 +55,13 @@ public class UsersController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorList<UserDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorList<UserDto>>> Stream(
-        [FromQuery] UserFilterDto? filter,
-        [FromQuery] string? next,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(CursorListModel<UserModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListModel<UserModel>>> Stream(
+        [FromQuery] UserFilterModel? filter,
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? next,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<UserDto>(_dataProtector);
+        var cursor = next.ToCursor<UserModel>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -69,12 +70,12 @@ public class UsersController(
         }
 
         var users = await _userRepository.Stream(
-            filter,
+            filter?.ToDto(),
             cursor,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(users);
+        return Ok(users.ToModel(u => u.ToModel()));
     }
 
     /// <summary>
@@ -84,32 +85,33 @@ public class UsersController(
     /// <response code="200">When there are no errors</response>
     [HttpGet("{userId:long}/sessions")]
     [ProducesResponseType(typeof(SessionsModel), StatusCodes.Status200OK)]
-    public async Task<IActionResult> ViewSessions(long userId)
+    public async Task<ActionResult<SessionsModel>> ViewSessions(long userId)
     {
         var sessions = await _sessionManager.GetAll(userId);
 
-        return Ok(new SessionsModel { Sessions = sessions });
+        return Ok(new SessionsModel 
+        { 
+            Sessions = [.. sessions.Select(s => s.ToModel())],
+        });
     }
 
     /// <summary>
     /// Revokes a specific session for a user.
     /// </summary>
     /// <param name="userId">The unique id of the user.</param>
-    /// <param name="sessionIdHash">The unique hashed id of the session.</param>
+    /// <param name="sessionId">The id of the session.</param>
     /// <response code="200">When there are no errors</response>
-    [HttpDelete("{userId:long}/sessions/{sessionIdHash}")]
+    [HttpDelete("{userId:long}/sessions/{sessionId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> RevokeSession(
         long userId,
-        string sessionIdHash)
+        string sessionId)
     {
         await _sessionManager.Remove(
             userId,
-            sessionIdHash);     
-        return Ok(new 
-        { 
-            message = $"Session {sessionIdHash} for user {userId} has been revoked." 
-        });
+            sessionId);
+
+        return Ok($"Session {sessionId} for user {userId} has been revoked.");
     }
 
     /// <summary>
@@ -123,9 +125,6 @@ public class UsersController(
     {
         await _sessionManager.RemoveAll(userId);
 
-        return Ok(new 
-        { 
-            message = $"User {userId} has been globally logged out." 
-        });
+        return Ok($"User {userId} has been globally logged out.");
     }
 }

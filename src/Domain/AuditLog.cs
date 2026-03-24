@@ -11,14 +11,9 @@ public class AuditLog : Entity, IHasCursorMetadata
     public string? BrowserInfo { get; set; }
 
     /// <summary>
-    /// This property exists only when the object is cast to <see cref="IHasCursorMetadata"/>
-    /// It does NOT create a new column the database.
+    /// Time of change
     /// </summary>
-    DateTimeOffset IHasCursorMetadata.CreatedAt
-    {
-        get => TimeStamp;
-        set => TimeStamp = value;
-    }
+    public DateTimeOffset CreatedAt { get; set; }
 
     public double Duration { get; set; }
 
@@ -31,11 +26,6 @@ public class AuditLog : Entity, IHasCursorMetadata
     public string? RequestId { get; set; }
 
     public int StatusCode { get; set; }
-
-    /// <summary>
-    /// Time of change
-    /// </summary>
-    public DateTimeOffset TimeStamp { get; set; }
 
     public string? Url { get; set; }
 

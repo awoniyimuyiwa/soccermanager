@@ -1,18 +1,17 @@
-using Application.Contracts;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Models.V1;
 
-public record PlaceOnTransferListModel : PlaceOnTransferListDto
-{
-    [Required]
+/// <summary>
+/// Data for placing a player on the transfer list.
+/// </summary>
+/// <param name="AskingPrice">The price requested for the player. Must be greater than zero.</param>
+/// <param name="PlayerConcurrencyStamp">Stamp to ensure the player wasn't modified since retrieval.</param>
+public record PlaceOnTransferListModel(
     [Range(1, int.MaxValue, ErrorMessage = "Asking price must be greater than zero.")]
-    public override int AskingPrice { get; init; }
+    [Required]
+    int AskingPrice,
 
-    /// <summary>
-    /// Player concurrency stamp
-    /// </summary>
     [MaxLength(Domain.Constants.StringMaxLength)]
     [Required]
-    public override string PlayerConcurrencyStamp { get; init; } = null!;
-}
+    string PlayerConcurrencyStamp);

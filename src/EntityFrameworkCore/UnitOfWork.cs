@@ -102,7 +102,7 @@ class UnitOfWork(ApplicationDbContext applicationDbContext) : IUnitOfWork, IDisp
     {
         var entry = ex.Entries[0];
         var entityName = entry.Entity.GetType().Name;
-        var entityId = entry.Property("Id").CurrentValue;
+        var entityId = entry.Property("ExternalId").CurrentValue;
         var databaseValues = entry.GetDatabaseValues();
         throw new ConcurrencyException(
             entityName,

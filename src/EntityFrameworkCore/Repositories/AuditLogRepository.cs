@@ -21,7 +21,7 @@ class AuditLogRepository(ApplicationDbContext context) : BaseRepository<AuditLog
                 al.IpAddress,
                 al.RequestId,
                 al.StatusCode,
-                al.TimeStamp,
+                al.CreatedAt,
                 al.Url,
                 al.User.ExternalId,
                 al.AuditLogActions.Select(ala => new AuditLogActionDto(
@@ -51,7 +51,7 @@ class AuditLogRepository(ApplicationDbContext context) : BaseRepository<AuditLog
             pageNumber,
             pageSize,
             q => q.ToInternalDto(),
-            al => al.TimeStamp,
+            al => al.CreatedAt,
             filter: q => filter != null ? ApplyFilter(filter) : q,
             cancellationToken);
 
@@ -75,13 +75,13 @@ class AuditLogRepository(ApplicationDbContext context) : BaseRepository<AuditLog
     private IQueryable<AuditLog> ApplyFilter(AuditLogFilterDto filter)
     {
         return _context.Set<AuditLog>()
-            .WhereIf(filter.From != null, al => al.TimeStamp >= filter.From)
+            .WhereIf(filter.From != null, al => al.CreatedAt >= filter.From)
             .WhereIf(filter.HttpMethod != null, al => al.HttpMethod == filter.HttpMethod)
             .WhereIf(filter.IpAddress != null, al => al.IpAddress != null && al.IpAddress.Contains(filter.IpAddress!))
             .WhereIf(filter.IsSuccessful != null, al => (al.Exception == null) == filter.IsSuccessful)
             .WhereIf(filter.RequestId != null, al => al.RequestId != null && al.RequestId.Contains(filter.RequestId!))
             .WhereIf(filter.StatusCode != null, al => al.StatusCode == filter.StatusCode)
-            .WhereIf(filter.To != null, al => al.TimeStamp <= filter.To)
+            .WhereIf(filter.To != null, al => al.CreatedAt <= filter.To)
             .WhereIf(filter.Url != null, al => al.Url != null && al.Url.Contains(filter.Url!))
             .WhereIf(filter.UserId != null, al => al.User != null && al.User.ExternalId == filter.UserId); ;
     }

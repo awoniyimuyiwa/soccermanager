@@ -503,11 +503,14 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             var sessions = await sessionManager.GetAll(long.Parse(userId));
 
-            return TypedResults.Ok(new SessionsModel { Sessions = sessions });
+            return TypedResults.Ok(new SessionsModel 
+            { 
+                Sessions = [.. sessions.Select(s => s.ToModel())] 
+            });
         }).WithSummary("Retrieves all active sessions for the current user.");
 
-        accountGroup.MapDelete("/sessions/{sessionIdHash}", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
-            string sessionIdHash,
+        accountGroup.MapDelete("/sessions/{id}", async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
+            string id,
             ClaimsPrincipal claimsPrincipal,
             [FromServices] IUserSessionManager sessionManager) =>
         {
@@ -520,7 +523,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             await sessionManager.Remove(
                 long.Parse(userId),
-                sessionIdHash);
+                id);
 
             return TypedResults.NoContent();
         }).WithSummary("Revokes the specified session for the current user.");
@@ -542,7 +545,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         }).WithSummary("Revokes all active sessions for the current user.");
 
         // Fetch AI setting for the current user.
-        accountGroup.MapGet("/ai-setting", async Task<Results<Ok<AISettingDto>, NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
+        accountGroup.MapGet("/ai-setting", async Task<Results<Ok<AISettingModel>, NoContent, UnauthorizedHttpResult, ProblemHttpResult>> (
             ClaimsPrincipal claimsPrincipal,
             [FromServices] IUserRepository userRepository) =>
         {
@@ -552,12 +555,12 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             if (dto is null) { return TypedResults.NoContent(); }
 
-            return TypedResults.Ok(dto);
+            return TypedResults.Ok(dto.ToModel());
         }).WithSummary("Retrieve AI setting for the current user.")
         .WithDescription("Returns 204 No Content if the user has not configured AI setting.");
 
         // Update AI setting for the current user.
-        accountGroup.MapPut("/ai-setting", async Task<Results<Ok<AISettingDto>, ValidationProblem, UnauthorizedHttpResult, BadRequest<string>>> (
+        accountGroup.MapPut("/ai-setting", async Task<Results<Ok<AISettingModel>, ValidationProblem, UnauthorizedHttpResult, BadRequest<string>>> (
             ClaimsPrincipal claimsPrincipal,
             [FromBody] CreateUpdateAISettingModel input,
             IChatClientFactory chatClientFactory,
@@ -599,10 +602,10 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             var dto = await userService.CreateUpdateAISetting(
                 userId,
-                input,
+                input.ToDto(),
                 cancellationToken);
 
-            return TypedResults.Ok(dto);
+            return TypedResults.Ok(dto.ToModel());
         }).WithValidation<CreateUpdateAISettingModel>()
         .WithSummary("Update AI setting and API key for the current user.")
         .WithDescription("The Key is encrypted before storage. For Ollama, the Key can be omitted.");
@@ -704,39 +707,43 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         var today = timeProvider.GetUtcNow().Date;
         var random = new Random();
         var players = new List<CreatePlayerDto>();
-        players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto()
-        {
-            DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = (int)PlayerType.Goalkeeper,
-            Value = Domain.Constants.InitialPlayerValue
-        }));
+        players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto(
+            null, 
+            GetRandomDateOfBirth(today, random), 
+            null,
+            null,
+            (int)PlayerType.Goalkeeper,
+            Domain.Constants.InitialPlayerValue)));
 
-        players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
-        {
-            DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = (int)PlayerType.Defender,
-            Value = Domain.Constants.InitialPlayerValue
-        }));
+        players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto(
+            null,
+            GetRandomDateOfBirth(today, random),
+            null,
+            null,
+            (int)PlayerType.Defender,
+            Domain.Constants.InitialPlayerValue)));
 
-        players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto()
-        {
-            DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = (int)PlayerType.Midfielder,
-            Value = Domain.Constants.InitialPlayerValue
-        }));
+        players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto(
+            null,
+            GetRandomDateOfBirth(today, random),
+            null,
+            null,
+            (int)PlayerType.Midfielder,
+            Domain.Constants.InitialPlayerValue)));
 
-        players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto()
-        {
-            DateOfBirth = GetRandomDateOfBirth(today, random),
-            Type = (int)PlayerType.Attacker,
-            Value = Domain.Constants.InitialPlayerValue
-        }));
+        players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto(
+            null,
+            GetRandomDateOfBirth(today, random),
+            null,
+            null,
+            (int)PlayerType.Attacker,
+            Domain.Constants.InitialPlayerValue)));
 
         await teamService.Create(user,
-            new CreateTeamDto
-            {
-                TransferBudget = Domain.Constants.InitialTeamTransferBudget,
-            },
+            new CreateTeamDto(
+                null, 
+                null, 
+                Domain.Constants.InitialTeamTransferBudget),
             players);
     }
 

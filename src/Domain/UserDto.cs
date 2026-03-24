@@ -19,7 +19,7 @@ public record UserDto(
 }
 
 public record UserFilterDto(
-    string SearchTerm = "",
+    string? SearchTerm = null,
     DateTimeOffset? CreatedFrom = null,
     DateTimeOffset? CreatedTo = null,
     bool? IsEmailConfirmed = null,

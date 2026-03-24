@@ -1,10 +1,11 @@
 ﻿using Api.BackgroundServices;
 using Api.Extensions;
+using Api.Models.V1;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
+using System.ComponentModel.DataAnnotations;
 
 namespace Api.Controllers.V1.Admin;
 
@@ -31,20 +32,19 @@ public class AuditLogsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedList<AuditLogDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedList<AuditLogDto>>> Index(
-        [FromQuery] AuditLogFilterDto filter,
+    [ProducesResponseType(typeof(PaginatedListModel<AuditLogModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListModel<AuditLogModel>>> Index(
+        [FromQuery] AuditLogFilterModel? filter,
         [FromQuery] int pageNumber = Domain.Constants.MinPageNumber,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
         var auditLogs = await _auditLogRepository.Paginate(
-            filter,
+            filter?.ToDto(),
             pageNumber,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(auditLogs);
+        return Ok(auditLogs.ToModel(al => al.ToModel()));
     }
 
     /// <summary>
@@ -55,14 +55,13 @@ public class AuditLogsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorList<AuditLogDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorList<AuditLogDto>>> Stream(
-        [FromQuery] AuditLogFilterDto? filter,
-        [FromQuery] string? next,
-        [FromQuery] int pageSize = Domain.Constants.MaxPageSize,
-        CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(CursorListModel<AuditLogModel>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListModel<AuditLogModel>>> Stream(
+        [FromQuery] AuditLogFilterModel? filter,
+        [FromQuery] [MaxLength(Domain.Constants.StringMaxLength)] string? next,
+        [FromQuery] int pageSize = Domain.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<AuditLogDto>(_dataProtector);
+        var cursor = next.ToCursor<AuditLogModel>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -71,12 +70,12 @@ public class AuditLogsController(
         }
 
         var auditLogs = await _auditLogRepository.Stream(
-            filter,
+            filter?.ToDto(),
             cursor,
             pageSize,
-            cancellationToken);
+            HttpContext.RequestAborted);
 
-        return Ok(auditLogs);
+        return Ok(auditLogs.ToModel(al => al.ToModel()));
     }
 
     /// <summary>
@@ -86,18 +85,18 @@ public class AuditLogsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When audit log is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(FullAuditLogDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FullAuditLogModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<FullAuditLogDto>> View(Guid id)
+    public async Task<ActionResult<FullAuditLogModel>> View(Guid id)
     {
-        var auditLog = await _auditLogRepository.Get(al => al.ExternalId == id);
+        var dto = await _auditLogRepository.Get(al => al.ExternalId == id);
 
-        if (auditLog is null)
+        if (dto is null)
         {
             return NotFound();
         }
 
-        return Ok(auditLog);
+        return Ok(dto.ToModel());
     }
 
     /// <summary>
@@ -116,9 +115,11 @@ public class AuditLogsController(
     /// Get audit log clean up status
     /// </summary>
     /// <response code="200">When there are no errors</response>
+    /// <response code="404">When audit log is not found </response>
     [HttpGet("cleanup-status")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> CleanupStatus()
+    [ProducesResponseType(typeof(BackgroundServiceStatModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BackgroundServiceStatModel>> CleanupStatus()
     {
         var dto = await _backgroundServiceStatRepository.Get
             (bss => bss.Type == BackgroundServiceStatType.AuditLogCleanUp);
@@ -128,15 +129,6 @@ public class AuditLogsController(
             return NotFound("Audit log cleanup has never run.");
         }
 
-        return Ok(new
-        {
-            Details = !string.IsNullOrWhiteSpace(dto.Details)
-            ? JsonSerializer.Deserialize<object>(
-                dto.Details, 
-                JsonSerializerOptions.Web) : null,
-            dto.LastRunAt,
-            dto.TotalInLastRun,
-            dto.Total
-        });
+        return Ok(dto.ToModel());
     }
 }
