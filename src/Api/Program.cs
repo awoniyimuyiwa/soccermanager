@@ -1,4 +1,5 @@
 using Api;
+using Api.Attributes;
 using Api.BackgroundServices;
 using Api.Controllers.V1;
 using Api.Extensions;
@@ -66,6 +67,11 @@ builder.Services.AddOptions<CustomDataProtectionOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+builder.Services.AddOptions<IdempotencyOptions>()
+    .Bind(builder.Configuration.GetSection(IdempotencyOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 builder.Services.AddOptions<RateLimitOptions>()
     .Bind(builder.Configuration.GetSection(RateLimitOptions.SectionName))
     .ValidateDataAnnotations()
@@ -102,7 +108,8 @@ builder.Services.AddProblemDetails(); // Enable Problem Details support
 
 builder.Services.AddControllers(options =>
 {
-    options.Filters.Add<AntiforgeryAuthorizationFilter>();
+    options.Filters.Add<AntiforgeryFilter>();
+    options.Filters.Add<IdempotencyFilter>();
 }).AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -121,6 +128,7 @@ builder.Services.AddOpenApi(options =>
     options.AddSchemaTransformer<PasswordSchemaTransformer>();
 
     options.AddOperationTransformer<AntiforgeryHeaderOperationTransformer>();
+    options.AddOperationTransformer<IdempotencyHeaderOperationTransformer>();
 });
 
 builder.Services.AddApiVersioning(options =>
@@ -343,6 +351,11 @@ builder.Services.AddOpenTelemetry()
          options.SetVerboseDatabaseStatements = builder.Environment.IsDevelopment();
      }).AddOtlpExporter());
 
+// Registers the services required for the [RequestTimeout] attribute.
+// Note: This must be paired with app.UseRequestTimeouts() in the middleware pipeline
+// for the timeouts to be actively monitored and enforced.
+builder.Services.AddRequestTimeouts();
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -350,6 +363,31 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 
 app.UseHttpsRedirection();
+
+// Explicitly call Routing so we can identify the endpoint early
+app.UseRouting();
+
+app.Use(async (context, next) =>
+{
+    // Conditional Buffering based on the [Idempotent] attribute
+    /* 
+     * EnableBuffering() must be called in this middleware (post-routing) to ensure the request 
+     * stream is seekable before it reaches the Model Binder or the IdempotencyFilter.
+     * 
+     * If called later inside an Action Filter, the Binder has typically already consumed 
+     * the forward-only stream. Attempting to buffer at that stage results in an 
+     * exhausted stream and an empty SHA-256 hash (47DEQ...).
+     */
+    var endpoint = context.GetEndpoint();
+    var isIdempotent = endpoint?.Metadata.GetMetadata<IdempotentAttribute>() != null;
+
+    if (isIdempotent)
+    {
+        context.Request.EnableBuffering();
+    }
+
+    await next();
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -396,10 +434,9 @@ app.Use(async (context, next) =>
 {
     // Expose the W3C Trace ID in the response header to correlate client requests with server-side telemetry.
     var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
-    context.Response.Headers.Append("X-Trace-ID", traceId);
+    context.Response.Headers.Append(Api.Constants.TraceIdHeaderName, traceId);
     await next();
 });
-
 
 /* 
  * CORS is currently disabled because the Frontend and API should ideally share the same domain.
@@ -417,6 +454,8 @@ app.Use(async (context, next) =>
  *    "Retry-After");
  */
 // app.UseCors(); // Not required for same-origin deployments
+
+app.UseRequestTimeouts();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -426,7 +465,8 @@ app.UseMiddleware<RateLimitHeadersMiddleware>() // Add rate limit headers to suc
     .UseMiddleware<TransactionMiddleware>();
 
 app.MapGroup("v{version:apiVersion}")
-    .AddEndpointFilter<AntiforgeryEndpointFilter>()
+    .AddEndpointFilter<AntiforgeryFilter>()
+    .AddEndpointFilter<IdempotencyFilter>()
     .MapCustomIdentityApiV1<ApplicationUser>()
     .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build())
     .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);

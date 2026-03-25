@@ -15,6 +15,10 @@ public interface IPlayerRepository : IRepository<Player>
         Expression<Func<Player, bool>> expression,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyCollection<Guid>> GetExistingIds(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default);
+
     Task<PaginatedList<PlayerDto>> Paginate(
         PlayerFilterDto filter,
         int pageNumber = Constants.MinPageNumber, 

@@ -6,16 +6,16 @@ namespace Api.OpenApi;
 public class AntiforgeryHeaderOperationTransformer : IOpenApiOperationTransformer
 {
     public Task TransformAsync(
-        OpenApiOperation operation, 
+        OpenApiOperation operation,
         OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
         var httpMethod = context.Description.HttpMethod;
 
         // Skip adding the header for "Safe" methods (GET, HEAD, OPTIONS, TRACE)
-        if (string.IsNullOrEmpty(httpMethod) 
-            || HttpMethods.IsGet(httpMethod) 
-            || HttpMethods.IsHead(httpMethod) 
-            || HttpMethods.IsOptions(httpMethod) 
+        if (string.IsNullOrEmpty(httpMethod)
+            || HttpMethods.IsGet(httpMethod)
+            || HttpMethods.IsHead(httpMethod)
+            || HttpMethods.IsOptions(httpMethod)
             || HttpMethods.IsTrace(httpMethod))
         {
             return Task.CompletedTask;

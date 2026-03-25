@@ -12,6 +12,7 @@ public record CreateUpdatePlayerDto(
 
 
 public record CreatePlayerDto(
+    Guid Id,
     string? Country,
     DateOnly DateOfBirth ,
     string? FirstName,

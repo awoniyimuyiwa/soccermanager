@@ -106,7 +106,7 @@ public class BackgroundJobsController(
     /// Process background jobs manually
     /// </summary>
     /// <response code="202">When there are no errors</response>
-    [HttpPost("Process")]
+    [HttpPost("process")]
     public IActionResult Process()
     {
         _backgroundJobTrigger.Trigger();

@@ -5,6 +5,7 @@ using Application.Contracts;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
@@ -95,9 +96,11 @@ public class TeamsController(
     /// <response code="400">When there are validation errors</response>
     /// <response code="401">When authentication fails</response>
     [HttpPost]
+    [Idempotent]
     [ProducesResponseType(typeof(TeamModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [RequestTimeout(60000)]
     public async Task<ActionResult<TeamModel>> Create(CreateTeamModel input)
     {
         var user = await _userManager.GetUserAsync(User);
@@ -110,13 +113,27 @@ public class TeamsController(
             t => t.OwnerId == user.Id && t.Name == input.Name))
         {
             ModelState.AddModelError(nameof(input.Name), Constants.AlreadyExistsErrorMessage);
+        }
+
+        if (await _teamRepository.Any(t => t.ExternalId == input.Id))
+        {
+            ModelState.AddModelError(nameof(input.Id), Constants.AlreadyExistsErrorMessage);
+        }
+
+        if (input.Players.Count != 0)
+        {
+            await Validate(input.Players);
+        }
+
+        if (!ModelState.IsValid)
+        {
             return ValidationProblem();
         }
 
         var dto = await _teamService.Create(        
             user,
             input.ToDto(),
-            [.. input.Players.Select(p => p.ToDto())]);
+            [.. input.Players!.Select(p => p.ToDto())]);
 
         return Ok(dto.ToModel());
     }
@@ -185,6 +202,7 @@ public class TeamsController(
     /// <response code="401">When authentication fails</response>
     /// <response code="404">When team is not found </response>
     [HttpPost("{id}/players")]
+    [Idempotent]
     [ProducesResponseType(typeof(PlayersModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -193,8 +211,15 @@ public class TeamsController(
         Guid id, 
         CreatePlayersModel input)
     {
+        await Validate(input.Players);
+
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem();
+        }
+
         var userId = User.GetUserId();
-        
+
         var players = await _teamService.AddPlayers(    
             id,
             userId,
@@ -305,5 +330,42 @@ public class TeamsController(
             input.ToDto());
 
         return Ok(dto.ToModel());
+    }
+
+    private async Task Validate(
+        IReadOnlyCollection<CreatePlayerModel> 
+        players,
+        CancellationToken cancellationToken = default)
+    {
+        var seenIds = new HashSet<Guid>();
+        for (int i = 0; i < players.Count; i++)
+        {
+            var player = players.ElementAt(i);
+            if (!seenIds.Add(player.Id))
+            {
+                var key = $"{nameof(CreateTeamModel.Players)}[{i}].{nameof(CreatePlayerModel.Id)}";
+                ModelState.AddModelError(key, Constants.DuplicateInRequestErrorMessage);
+            }
+        }
+
+        var ids = players.Select(p => p.Id)
+            .Distinct()
+            .ToList();
+        var existingIds = await _playerRepository.GetExistingIds(
+            ids, 
+            cancellationToken);
+        if (existingIds.Count == 0) { return; }
+
+        var idPairs = existingIds.ToDictionary(id => id);
+
+        for (int i = 0; i < players.Count; i++)
+        {
+            if (idPairs.ContainsKey(players.ElementAt(i).Id))
+            {
+                // Key format: "Players[0].Id"
+                var key = $"{nameof(CreateTeamModel.Players)}[{i}].{nameof(CreatePlayerModel.Id)}";
+                ModelState.AddModelError(key, Constants.AlreadyExistsErrorMessage);
+            }
+        }
     }
 }

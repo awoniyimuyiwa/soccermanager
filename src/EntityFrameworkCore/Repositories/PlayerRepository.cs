@@ -37,6 +37,16 @@ class PlayerRepository(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<Guid>> GetExistingIds(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Players
+            .Where(p => ids.Contains(p.ExternalId))
+            .Select(p => p.ExternalId)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<PaginatedList<PlayerDto>> Paginate(
         PlayerFilterDto? filter,
         int pageNumber = Domain.Constants.MinPageNumber,
