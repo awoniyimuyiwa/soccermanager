@@ -49,16 +49,19 @@ The project is divided into four concentric layers following Onion Architecture 
   
 ```mermaid
 graph TD
-    Client((Client / Scout)) <-->|Idempotency-Key / Tokens| API[ASP.NET Core 10 Web API]
+    Client((Client / Scout)) <-->|Idempotency & Session Tokens| API[ASP.NET Core 10 Web API]
     
-    subgraph Security_Infrastructure [Reliability & Observability]
+    subgraph Infrastructure [Reliability & Data Persistence]
         API <-->|Hashed Sessions / Rate Limit / Idempotency| Redis[(Redis Cluster)]
+        API <-->|EF Core / AES Encrypted Keys| DB[(SQL Database)]
+        Jobs <-->|Shared Persistence / Job State| DB
         API -->|Distributed Tracing & Metrics| OTel[OpenTelemetry Collector]
         API <-->|Async Tasks / Reporting| Jobs[.NET Background Service]
     end
 
     subgraph Core_Logic [Onion Architecture]
         API --> App[Application Layer]
+        Jobs --> App[Application Layer]
         App --> Domain[Domain / DDD Layer]
     end
 
