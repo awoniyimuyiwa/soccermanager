@@ -27,36 +27,5 @@ public static class HttpContextExtensions
                 Secure = true
             });
     }
-
-    /// <summary>
-    /// Determines if the current request should bypass antiforgery validation.
-    /// Skips validation if:
-    /// <list type="bullet">
-    /// <item>The endpoint is explicitly marked with <see cref="IAntiforgeryMetadata"/> (e.g., [IgnoreAntiforgeryToken]).</item>
-    /// <item>The request uses a "safe" HTTP method (GET, HEAD, OPTIONS, TRACE).</item>
-    /// <item>The request uses Bearer Authentication, which is inherently protected against CSRF.</item>
-    /// </list>
-    /// </summary>
-    /// <param name="httpContext">The current HTTP context.</param>
-    /// <returns><c>true</c> if validation should be skipped; otherwise, <c>false</c>.</returns>
-    public static bool ShouldSkipAntiforgeryValidation(this HttpContext httpContext)
-    {
-        var endpoint = httpContext.GetEndpoint();
-        var antiforgeryMetadata = endpoint?.Metadata.GetMetadata<IAntiforgeryMetadata>();
-        var authHeader = httpContext.Request.Headers.Authorization.ToString();
-     
-        var method = httpContext.Request.Method;
-        if (antiforgeryMetadata?.RequiresValidation == false
-            || HttpMethods.IsGet(method)
-            || HttpMethods.IsHead(method)
-            || HttpMethods.IsOptions(method)
-            || HttpMethods.IsTrace(method)
-            || authHeader.StartsWith("Bearer", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return false;
-    }
 } 
     

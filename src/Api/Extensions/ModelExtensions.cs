@@ -28,6 +28,7 @@ public static class ModelExtensions
 
     public static CreatePlayerDto ToDto(this CreatePlayerModel model) =>
         new(
+            model.Id,
             model.Country,
             model.DateOfBirth,
             model.FirstName,
@@ -37,6 +38,7 @@ public static class ModelExtensions
 
     public static CreateTeamDto ToDto(this CreateTeamModel model) =>
         new(
+            model.Id,
             model.Country,
             model.Name,
             model.TransferBudget);

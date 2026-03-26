@@ -18,21 +18,23 @@ namespace Api.Models.V1;
 /// 2 = <see cref="PlayerType.Midfielder"/>, 
 /// 3 = <see cref="PlayerType.Attacker"/>.
 /// </param>
-public record CreateUpdatePlayerModel(
-    [CountryCode(ErrorMessage = Constants.CountryCodeErrorMessage)] [MaxLength(2)] string? Country,
-
-    [AgeRange(Domain.Constants.MinPlayerAge, Domain.Constants.MaxPlayerAge)] [Required] DateOnly DateOfBirth,
-
-    [MinLength(Domain.Constants.StringMinLength)] [MaxLength(Domain.Constants.StringMaxLength)] string? FirstName,
-
-    [MinLength(Domain.Constants.StringMinLength)] [MaxLength(Domain.Constants.StringMaxLength)] string? LastName,
-
-    [Required] [EnumDataType(typeof(PlayerType))] int Type);
+/// <remarks>
+/// Validation attributes on base positional records are not inherited by child parameters; 
+/// they must be re-applied to the child record's primary constructor.
+/// </remarks>
+public abstract record CreateUpdatePlayerModel(
+    string? Country,
+    DateOnly DateOfBirth,
+    string? FirstName,
+    string? LastName,
+    int Type);
 
 
 /// <summary>
 /// Data required to create a new player.
+/// </summary>
 /// <inheritdoc cref="CreateUpdatePlayerModel" />
+/// <param name="Id">Unique player id</param>
 /// <param name="Country"><inheritdoc /></param>
 /// <param name="DateOfBirth"><inheritdoc /></param>
 /// <param name="FirstName"><inheritdoc /></param>
@@ -40,11 +42,12 @@ public record CreateUpdatePlayerModel(
 /// <param name="Type"><inheritdoc /></param>
 /// <param name="Value">The market value; defaults to 1,000,000.</param>
 public record CreatePlayerModel(
-    string? Country,
-    DateOnly DateOfBirth,
-    string? FirstName,
-    string? LastName,
-    int Type,
+    Guid Id,
+    [CountryCode(ErrorMessage = Constants.CountryCodeErrorMessage)][MaxLength(2)] string? Country,
+    [AgeRange(Domain.Constants.MinPlayerAge, Domain.Constants.MaxPlayerAge)][Required] DateOnly DateOfBirth,
+    [MinLength(Domain.Constants.StringMinLength)][MaxLength(Domain.Constants.StringMaxLength)] string? FirstName,
+    [MinLength(Domain.Constants.StringMinLength)][MaxLength(Domain.Constants.StringMaxLength)] string? LastName,
+    [Required][EnumDataType(typeof(PlayerType))] int Type,
     [Range(1, int.MaxValue)][Required] decimal Value = Domain.Constants.InitialPlayerValue)
     : CreateUpdatePlayerModel(
         Country,
@@ -55,10 +58,8 @@ public record CreatePlayerModel(
 
 public record CreatePlayersModel(
     [MaxLength(Domain.Constants.StringMaxLength)] [Required] string TeamConcurrencyStamp,
-    IReadOnlyCollection<CreatePlayerModel>? Players = null)
+    [MaxLength(Constants.MaxLengthOfPlayers)] [MinLength(Constants.MinLengthOfPlayers)][Required] IReadOnlyCollection<CreatePlayerModel>? Players = null)
 {
-    [Required]
-    [MaxLength(Constants.MaxLengthOfPlayers)]
     public IReadOnlyCollection<CreatePlayerModel> Players { get; init; } = Players ?? [];
 }
 
@@ -71,11 +72,11 @@ public record CreatePlayersModel(
 /// <param name="Type"><inheritdoc /></param>
 /// <param name="ConcurrencyStamp">The stamp used for optimistic concurrency checks.</param>
 public record UpdatePlayerModel(
-    string? Country,
-    DateOnly DateOfBirth,
-    string? FirstName,
-    string? LastName,
-    int Type,
+    [CountryCode(ErrorMessage = Constants.CountryCodeErrorMessage)][MaxLength(2)] string? Country,
+    [AgeRange(Domain.Constants.MinPlayerAge, Domain.Constants.MaxPlayerAge)][Required] DateOnly DateOfBirth,
+    [MinLength(Domain.Constants.StringMinLength)][MaxLength(Domain.Constants.StringMaxLength)] string? FirstName,
+    [MinLength(Domain.Constants.StringMinLength)][MaxLength(Domain.Constants.StringMaxLength)] string? LastName,
+    [Required][EnumDataType(typeof(PlayerType))] int Type,
     [MaxLength(Domain.Constants.StringMaxLength)][Required] string ConcurrencyStamp)
     : CreateUpdatePlayerModel(
         Country,

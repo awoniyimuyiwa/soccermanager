@@ -171,7 +171,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
                 }
                 catch (AntiforgeryValidationException)
                 {
-                    return TypedResults.Problem(Constants.AntiforgeryValidationErrorMesage, statusCode: StatusCodes.Status400BadRequest);
+                    return TypedResults.Problem(Constants.AntiforgeryValidationErrorMessage, statusCode: StatusCodes.Status400BadRequest);
                 }
             }
 
@@ -708,6 +708,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         var random = new Random();
         var players = new List<CreatePlayerDto>();
         players.AddRange(Enumerable.Range(1, 3).Select(index => new CreatePlayerDto(
+            Guid.NewGuid(),
             null, 
             GetRandomDateOfBirth(today, random), 
             null,
@@ -716,6 +717,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             Domain.Constants.InitialPlayerValue)));
 
         players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto(
+            Guid.NewGuid(),
             null,
             GetRandomDateOfBirth(today, random),
             null,
@@ -724,6 +726,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             Domain.Constants.InitialPlayerValue)));
 
         players.AddRange(Enumerable.Range(1, 6).Select(index => new CreatePlayerDto(
+            Guid.NewGuid(),
             null,
             GetRandomDateOfBirth(today, random),
             null,
@@ -732,6 +735,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             Domain.Constants.InitialPlayerValue)));
 
         players.AddRange(Enumerable.Range(1, 5).Select(index => new CreatePlayerDto(
+            Guid.NewGuid(),
             null,
             GetRandomDateOfBirth(today, random),
             null,
@@ -741,6 +745,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
         await teamService.Create(user,
             new CreateTeamDto(
+                Guid.NewGuid(),
                 null, 
                 null, 
                 Domain.Constants.InitialTeamTransferBudget),

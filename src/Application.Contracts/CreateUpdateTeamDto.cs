@@ -10,6 +10,7 @@ public record CreateUpdateTeamDto(
     string? Name);
 
 public record CreateTeamDto(
+    Guid Id,
     string? Country,
     string? Name,
     decimal TransferBudget = Domain.Constants.InitialTeamTransferBudget)

@@ -70,7 +70,7 @@ class TeamService(
            nameof(Create));
 
         var team = new Team(
-            Guid.NewGuid(),
+            teamDto.Id,
             teamDto.Country,
             teamDto.Name,
             owner);
@@ -145,7 +145,7 @@ class TeamService(
         foreach (var playerDto in playerDtos)
         {
             var player = new Player(
-                Guid.NewGuid(),
+                playerDto.Id,
                 playerDto.Country,
                 playerDto.DateOfBirth,
                 playerDto.FirstName,
