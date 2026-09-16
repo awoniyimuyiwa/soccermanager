@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Options;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Resources;
@@ -49,7 +50,7 @@ var logger = loggerFactory.CreateLogger("Startup");
 
 // Changing the app name value will invalidate existing cache entries, rate limiting keys,
 // auth tickets and data protection keys.
-var appName = builder.Configuration.GetValue<string>("AppName") 
+var appName = builder.Configuration.GetValue<string>("AppName")
     ?? throw new InvalidOperationException("Setting 'AppName' is missing from configuration.");
 
 builder.Services.AddOptions<AuditLogOptions>()
@@ -145,13 +146,13 @@ builder.Services.AddApiVersioning(options =>
     // Configure the format of the version in the route URL
     options.GroupNameFormat = "'v'VVV";
     options.SubstituteApiVersionInUrl = true;
-}); 
+});
 
 builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOptionsName, new JsonSerializerOptions
 {
-    TypeInfoResolver = new DefaultJsonTypeInfoResolver 
-    { 
-        Modifiers = { AuditLogJsonModifier.Modify } 
+    TypeInfoResolver = new DefaultJsonTypeInfoResolver
+    {
+        Modifiers = { AuditLogJsonModifier.Modify }
     },
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 });
@@ -159,24 +160,34 @@ builder.Services.AddKeyedSingleton(Domain.Constants.AuditLogJsonSerializationOpt
 var cacheVersion = builder.Configuration.GetValue<string>("CacheOptions:Version") ?? "V1";
 var cachePrefix = $"{appName}:{cacheVersion}:";
 
-var connectionMultiplexer = ConnectionMultiplexer.Connect(
-    builder.Configuration.GetConnectionString("Redis")
-    ?? throw new InvalidOperationException("Connection string 'Redis' not found."));
-var prefixedMultiplexer = connectionMultiplexer.WithKeyPrefix(cachePrefix);
-builder.Services.AddSingleton(prefixedMultiplexer);
+// Register custom prefixed IConnectionMultiplexer via DI.
+// handle connection establishment inside the factory method once.
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("Redis")
+        ?? throw new InvalidOperationException("Connection string 'Redis' not found.");
+
+    var connectionMultiplexer = ConnectionMultiplexer.Connect(connectionString);
+
+    return connectionMultiplexer.WithKeyPrefix(cachePrefix);
+});
 
 builder.Services.AddSingleton(sp =>
     sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase());
 
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    // Leave this empty! The Proxy already adds cachePrefix to all keys,
-    // and adding it here will result in double prefixing 
-    options.InstanceName = string.Empty;
-    options.ConnectionMultiplexerFactory = () => Task.FromResult(prefixedMultiplexer);
-});
+// This resolves proxy when the app makes its first cache write
+builder.Services.AddOptions<RedisCacheOptions>()
+    .Configure<IServiceProvider>((options, sp) =>
+    {
+        options.InstanceName = string.Empty; // Avoids double-prefixing anomalies
 
-builder.Services.AddDistributedMemoryCache();
+        // Safely hands over your custom proxy instance natively
+        options.ConnectionMultiplexerFactory = () =>
+            Task.FromResult(sp.GetRequiredService<IConnectionMultiplexer>());
+    });
+
+// Register the Distributed Cache service itself (it picks up the options from above)
+builder.Services.AddStackExchangeRedisCache(_ => { });
 
 builder.Services.AddEntityFrameworkServices();
 
@@ -278,11 +289,11 @@ builder.Services.AddSingleton<ITicketStore>(sp => sp.GetRequiredService<RedisTic
 builder.Services.AddSingleton<ISecureDataFormat<AuthenticationTicket>>(sp => sp.GetRequiredService<RedisTicketStore>());
 builder.Services.AddSingleton<IUserSessionManager>(sp => sp.GetRequiredService<RedisTicketStore>());
 
-var customDataProtectionOptions =       
-    builder.Configuration.GetRequiredSection(CustomDataProtectionOptions.SectionName)       
+var customDataProtectionOptions =
+    builder.Configuration.GetRequiredSection(CustomDataProtectionOptions.SectionName)
     .Get<CustomDataProtectionOptions>();
 
-builder.Services.AddCustomDataProtection( 
+builder.Services.AddCustomDataProtection(
     appName,
     customDataProtectionOptions!,
     logger);
@@ -324,32 +335,34 @@ builder.Logging.AddOpenTelemetry(logging =>
     logging.ParseStateValues = true; // Makes log placeholders searchable in Jaeger/Aspire
     logging.AddOtlpExporter(); // Sends logs to the same OTLP endpoint
 });
-builder.Services.AddOpenTelemetry() 
+builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService(serviceName: appName))
-    .WithTracing(tracing => tracing    
+    .WithTracing(tracing => tracing
     .AddSource(appName) // Everything internal shows up here    
     .AddAspNetCoreInstrumentation()  // External web stuff    
     .AddHttpClientInstrumentation() // External outgoing stuff
     .AddSqlClientInstrumentation(options =>
-     {
-         options.RecordException = true;
+    {
+        options.RecordException = true;
 
-         if (builder.Environment.IsDevelopment())
-         {
-             options.EnrichWithSqlCommand = (activity, command) =>
-             {
-                 if (command is System.Data.Common.DbCommand dbCommand)
-                 {
-                     activity.SetTag("db.statement", dbCommand.CommandText);
-                 }
-             };
-         }
-     })
-     .AddRedisInstrumentation(prefixedMultiplexer, options =>
-     {
-         // Captures Redis commands (SET, GET, etc.)
-         options.SetVerboseDatabaseStatements = builder.Environment.IsDevelopment();
-     }).AddOtlpExporter());
+        if (builder.Environment.IsDevelopment())
+        {
+            options.EnrichWithSqlCommand = (activity, command) =>
+            {
+                if (command is System.Data.Common.DbCommand dbCommand)
+                {
+                    activity.SetTag("db.statement", dbCommand.CommandText);
+                }
+            };
+        }
+    })
+    // OpenTelemetry will automatically wait and pull your overriden prefixed     
+    // IConnectionMultiplexer out of DI lazily at startup without any compilation errors.    
+    .AddRedisInstrumentation(options =>
+    {
+        // Captures Redis commands (SET, GET, etc.)
+        options.SetVerboseDatabaseStatements = builder.Environment.IsDevelopment();
+    }).AddOtlpExporter());
 
 // Registers the services required for the [RequestTimeout] attribute.
 // Note: This must be paired with app.UseRequestTimeouts() in the middleware pipeline
@@ -470,7 +483,7 @@ app.MapGroup("v{version:apiVersion}")
     .MapCustomIdentityApiV1<ApplicationUser>()
     .WithApiVersionSet(app.NewApiVersionSet().HasApiVersion(new ApiVersion(1, 0)).Build())
     .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
-    //.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
+//.WithMetadata(new AuditedAttribute()); // Uncomment to audit identity endpoints
 
 app.MapControllers()
     .RequireRateLimiting(Api.Constants.UserRateLimitPolicyName);
