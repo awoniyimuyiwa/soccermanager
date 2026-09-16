@@ -44,9 +44,9 @@ public class AuditLogCleanupService(
                 using var scope = scopeFactory.CreateScope();               
                 var backgroundServiceStatRepository = scope.ServiceProvider.GetRequiredService<IBackgroundServiceStatRepository>();
 
-                var lastRun = (await backgroundServiceStatRepository.Get(bss => bss.Type == BackgroundServiceStatType.AuditLogCleanUp, serviceCancellationToken))?.LastRunAt.DateTime;
+                var lastRun = (await backgroundServiceStatRepository.Get(bss => bss.Type == BackgroundServiceStatType.AuditLogCleanUp, serviceCancellationToken))?.LastRunAt;
                 var now = timeProvider.GetUtcNow();
-                var scheduledToday = now.Date.AddHours(2); // 2AM everyday
+                var scheduledToday = new DateTimeOffset(now.Year, now.Month, now.Day, 2, 0, 0, TimeSpan.Zero); //2AM UTC
                 var shouldRunImmediately = lastRun == null || (lastRun < scheduledToday && now >= scheduledToday);
 
                 if (!shouldRunImmediately)
